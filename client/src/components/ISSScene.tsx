@@ -20,8 +20,8 @@ function Model() {
               side: mat.side,
               transparent: mat.transparent,
               opacity: mat.opacity,
-              roughness: 0.7,
-              metalness: 0.2,
+              roughness: 0.5,
+              metalness: 0.4,
             });
             if (Array.isArray(child.material)) {
               child.material[i] = standard;
@@ -42,17 +42,26 @@ export default function ISSScene() {
   return (
     <Canvas
       camera={{ position: [55.214, -0.950, -33.493], fov: 60, near: 0.01, far: 1000 }}
-      gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.2 }}
+      gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.8 }}
     >
-      <ambientLight intensity={0.15} />
-      <directionalLight position={[10, 8, 5]} intensity={0.8} color="#fff5e6" castShadow />
-      <pointLight position={[55, 1, -33]} intensity={2} distance={15} color="#e8f0ff" />
-      <pointLight position={[55, 1, -40]} intensity={1.5} distance={12} color="#e8f0ff" />
-      <pointLight position={[50, 1, -30]} intensity={1} distance={10} color="#ffe8cc" />
-      <hemisphereLight args={["#c8d8e8", "#2a2a3a", 0.3]} />
+      <ambientLight intensity={0.02} />
+
+      {/* Harsh overhead fluorescents — cool white, spaced along the module */}
+      <pointLight position={[55, 2.5, -33]} intensity={8} distance={8} color="#d4e4ff" decay={2} />
+      <pointLight position={[55, 2.5, -38]} intensity={8} distance={8} color="#d4e4ff" decay={2} />
+      <pointLight position={[55, 2.5, -28]} intensity={8} distance={8} color="#d4e4ff" decay={2} />
+      <pointLight position={[50, 2.5, -33]} intensity={6} distance={8} color="#d4e4ff" decay={2} />
+      <pointLight position={[60, 2.5, -33]} intensity={6} distance={8} color="#d4e4ff" decay={2} />
+
+      {/* Warm instrument panel glow */}
+      <pointLight position={[55, -0.5, -35]} intensity={3} distance={5} color="#ff9944" decay={2} />
+      <pointLight position={[54, 0, -31]} intensity={2} distance={4} color="#44aaff" decay={2} />
+
+      {/* Red emergency accent */}
+      <pointLight position={[56, 0.5, -36]} intensity={1.5} distance={6} color="#ff2200" decay={2} />
       <Suspense fallback={null}>
         <Model />
-        <Environment preset="city" environmentIntensity={0.15} />
+        <Environment preset="night" environmentIntensity={0.1} />
       </Suspense>
       <OrbitControls enableZoom={false} enablePan={false} target={[55.214, -0.950, -34.493]} />
     </Canvas>
