@@ -2,11 +2,39 @@
 
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, useGLTF, Environment } from "@react-three/drei";
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import * as THREE from "three";
 
 function Model() {
   const { scene } = useGLTF("/iss_interiorinternational_space_station.glb");
+
+  useEffect(() => {
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        materials.forEach((mat, i) => {
+          if (mat instanceof THREE.MeshBasicMaterial) {
+            const standard = new THREE.MeshStandardMaterial({
+              map: mat.map,
+              color: mat.color,
+              side: mat.side,
+              transparent: mat.transparent,
+              opacity: mat.opacity,
+              roughness: 0.7,
+              metalness: 0.2,
+            });
+            if (Array.isArray(child.material)) {
+              child.material[i] = standard;
+            } else {
+              child.material = standard;
+            }
+            mat.dispose();
+          }
+        });
+      }
+    });
+  }, [scene]);
+
   return <primitive object={scene} />;
 }
 
