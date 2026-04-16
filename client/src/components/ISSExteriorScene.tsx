@@ -10,15 +10,16 @@ function HologramModel() {
   const { scene } = useGLTF("/iss-exterior.glb");
 
   useEffect(() => {
+    const wireframe = new THREE.MeshBasicMaterial({
+      wireframe: true,
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.9,
+    });
     scene.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
+      if (child.material instanceof THREE.MeshBasicMaterial && child.material.wireframe) return;
       const mats = Array.isArray(child.material) ? child.material : [child.material];
-      const wireframe = new THREE.MeshBasicMaterial({
-        wireframe: true,
-        color: 0x00ffff,
-        transparent: true,
-        opacity: 0.9,
-      });
       mats.forEach((mat) => mat.dispose());
       child.material = wireframe;
     });
