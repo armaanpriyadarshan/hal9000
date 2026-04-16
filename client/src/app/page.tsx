@@ -2,12 +2,12 @@
 
 import dynamic from "next/dynamic";
 
-const ISSScene = dynamic(() => import("@/components/ISSScene"), { ssr: false });
+const ISSInteriorScene = dynamic(() => import("@/components/ISSInteriorScene"), { ssr: false });
 
 export default function Home() {
   return (
     <div className="h-screen w-screen">
-      <ISSScene />
+      <ISSInteriorScene />
     </div>
   );
 }

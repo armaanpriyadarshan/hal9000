@@ -9,7 +9,7 @@ const CAMERA_POSITION: [number, number, number] = [55.214, -0.95, -33.493];
 const CAMERA_TARGET: [number, number, number] = [55.214, -0.95, -34.493];
 
 function Model() {
-  const { scene } = useGLTF("/iss_interiorinternational_space_station.glb");
+  const { scene } = useGLTF("/iss-interior.glb");
 
   useEffect(() => {
     scene.traverse((child) => {
@@ -39,7 +39,7 @@ function Model() {
   return <primitive object={scene} />;
 }
 
-export default function ISSScene() {
+export default function ISSInteriorScene() {
   return (
     <Canvas
       camera={{ position: CAMERA_POSITION, fov: 60, near: 0.01, far: 1000 }}
