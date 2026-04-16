@@ -44,7 +44,7 @@ export default function ISSScene() {
       camera={{ position: [55.214, -0.950, -33.493], fov: 60, near: 0.01, far: 1000 }}
       gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.8 }}
     >
-      <ambientLight intensity={0.02} />
+      <ambientLight intensity={0.3} />
 
       {/* Harsh overhead fluorescents — cool white, spaced along the module */}
       <pointLight position={[55, 2.5, -33]} intensity={8} distance={8} color="#d4e4ff" decay={2} />
@@ -61,7 +61,7 @@ export default function ISSScene() {
       <pointLight position={[56, 0.5, -36]} intensity={1.5} distance={6} color="#ff2200" decay={2} />
       <Suspense fallback={null}>
         <Model />
-        <Environment preset="night" environmentIntensity={0.1} />
+        <Environment preset="night" environmentIntensity={0.3} />
       </Suspense>
       <OrbitControls enableZoom={false} enablePan={false} target={[55.214, -0.950, -34.493]} />
     </Canvas>
