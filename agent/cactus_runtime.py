@@ -1,14 +1,31 @@
-"""Thin wrapper around the Cactus Python FFI for chat completion."""
+"""Thin wrapper around the Cactus Python FFI for Gemma 4 audio-in chat."""
 
 import json
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from cactus import cactus_complete, cactus_destroy, cactus_init, cactus_reset
 
+from config import WEIGHTS_ROOT
+
+
+def resolve_weights(model_name: str) -> Path:
+    short = model_name.split("/")[-1].lower()
+    for candidate in (WEIGHTS_ROOT / short, WEIGHTS_ROOT / model_name):
+        if candidate.exists() and any(candidate.iterdir()):
+            return candidate
+    raise FileNotFoundError(
+        f"Weights for {model_name} not found under {WEIGHTS_ROOT}. "
+        f"Run: cactus download {model_name}"
+    )
+
 
 class CactusSession:
-    def __init__(self, weights_path: str):
-        self.handle = cactus_init(weights_path, None, False)
+    """Long-lived Gemma 4 session. KV cache persists across turns."""
+
+    def __init__(self, model_name: str):
+        self.weights = resolve_weights(model_name)
+        self.handle = cactus_init(str(self.weights), None, False)
 
     def complete(
         self,

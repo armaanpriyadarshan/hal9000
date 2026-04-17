@@ -1,10 +1,10 @@
-"""HAL 9000 voice loop — mic in → Gemma 4 (via Cactus) → `say` TTS out.
+"""HAL 9000 voice loop.
 
-Run with the Homebrew Python 3.14 so the Cactus FFI bindings resolve:
+Pipeline per turn:
+    mic (push-to-talk) -> Gemma 4 E2B native audio completion -> macOS `say`
 
-    /opt/homebrew/bin/python3.14 agent/main.py
-
-Requires `cactus download google/gemma-4-E2B-it` to have been run first.
+Run with:
+    agent/.venv/bin/python agent/main.py
 """
 
 import json
@@ -15,43 +15,38 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from audio import record_push_to_talk
 from cactus_runtime import CactusSession
-from config import MODEL_NAME, SYSTEM_PROMPT, WEIGHTS_ROOT
+from config import COMPLETION_OPTIONS, LLM_MODEL, SYSTEM_PROMPT
 from tools import TOOL_SCHEMAS, dispatch
 from tts import speak
 
 
-def resolve_weights(model_name: str) -> Path:
-    short = model_name.split("/")[-1]
-    for candidate in (WEIGHTS_ROOT / short, WEIGHTS_ROOT / model_name):
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(
-        f"Weights for {model_name} not found under {WEIGHTS_ROOT}. "
-        f"Run: cactus download {model_name}"
+def run_turn(llm: CactusSession, messages: list[dict], pcm_data: bytes | None) -> str:
+    result = llm.complete(
+        messages, tools=TOOL_SCHEMAS, pcm_data=pcm_data, options=COMPLETION_OPTIONS
     )
-
-
-def run_turn(session: CactusSession, messages: list[dict], audio_pcm: bytes | None) -> str:
-    result = session.complete(messages, tools=TOOL_SCHEMAS, pcm_data=audio_pcm)
     text = result.get("response", "")
-    for call in result.get("function_calls", []) or []:
+    for call in result.get("function_calls") or []:
         name = call.get("name") or call.get("function", {}).get("name")
         args_raw = call.get("arguments", "{}")
         args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
-        tool_result = dispatch(name, args)
+        tool_output = dispatch(name, args)
         messages.append({"role": "assistant", "content": text, "tool_calls": [call]})
-        messages.append({"role": "tool", "name": name, "content": tool_result})
-        follow_up = session.complete(messages, tools=TOOL_SCHEMAS)
+        messages.append(
+            {
+                "role": "tool",
+                "content": json.dumps({"name": name, "content": tool_output}),
+            }
+        )
+        follow_up = llm.complete(messages, tools=TOOL_SCHEMAS, options=COMPLETION_OPTIONS)
         text = follow_up.get("response", text)
     return text
 
 
 def main() -> None:
-    weights = resolve_weights(MODEL_NAME)
-    print(f"Loading {MODEL_NAME} from {weights}...", flush=True)
+    print("Loading Gemma 4 E2B...", flush=True)
+    with CactusSession(LLM_MODEL) as llm:
+        print("Ready. Ctrl-C to exit.\n", flush=True)
 
-    with CactusSession(str(weights)) as session:
-        print("Ready. Ctrl-C to exit.", flush=True)
         messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         while True:
@@ -63,10 +58,15 @@ def main() -> None:
             if not pcm:
                 continue
 
-            messages.append({"role": "user", "content": "(user spoke)"})
-            reply = run_turn(session, messages, pcm)
+            messages.append({"role": "user", "content": ""})
+            try:
+                reply = run_turn(llm, messages, pcm)
+            except RuntimeError as e:
+                print(f"[error] {e}")
+                messages.pop()
+                continue
             messages.append({"role": "assistant", "content": reply})
-            print(f"HAL: {reply}", flush=True)
+            print(f"HAL: {reply}\n", flush=True)
             speak(reply)
 
 
