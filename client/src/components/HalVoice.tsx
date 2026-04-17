@@ -185,37 +185,30 @@ export default function HalVoice() {
         ctx.globalAlpha = 1;
       }
 
-      // HAL eye
+      // HAL eye — single radial gradient, no hard black disc
       if (s.eyeR > 0.5) {
         const eyeR = s.eyeR * pulse * dpr;
-        const blackR = BLACK_R * dpr;
+        const glowR = eyeR * 1.8;
 
-        // Black disc behind the eye
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = "#000";
-        ctx.beginPath();
-        ctx.arc(cx, cy, blackR, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Red disc — gradient spans eyeR, fades to black at edge
-        const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, eyeR);
+        // Red glow — bright center fading to transparent, no solid bg
+        const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
         disc.addColorStop(0, "rgba(255, 200, 50, 1)");
-        disc.addColorStop(0.06, "rgba(255, 160, 30, 1)");
-        disc.addColorStop(0.15, "rgba(230, 60, 10, 1)");
-        disc.addColorStop(0.35, "rgba(180, 15, 0, 1)");
-        disc.addColorStop(0.6, "rgba(80, 5, 0, 0.8)");
-        disc.addColorStop(0.8, "rgba(20, 0, 0, 0.3)");
+        disc.addColorStop(0.03, "rgba(255, 160, 30, 1)");
+        disc.addColorStop(0.08, "rgba(230, 60, 10, 1)");
+        disc.addColorStop(0.18, "rgba(180, 15, 0, 1)");
+        disc.addColorStop(0.35, "rgba(120, 8, 0, 0.85)");
+        disc.addColorStop(0.5, "rgba(60, 2, 0, 0.5)");
+        disc.addColorStop(0.7, "rgba(20, 0, 0, 0.15)");
         disc.addColorStop(1, "rgba(0, 0, 0, 0)");
-        ctx.shadowColor = "rgba(255, 40, 10, 0.8)";
-        ctx.shadowBlur = 30 * dpr;
+        ctx.shadowColor = "rgba(255, 40, 10, 0.6)";
+        ctx.shadowBlur = 25 * dpr;
         ctx.fillStyle = disc;
         ctx.beginPath();
-        ctx.arc(cx, cy, eyeR, 0, Math.PI * 2);
+        ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
         ctx.fill();
+        ctx.shadowBlur = 0;
 
         // Bright center dot
-        ctx.shadowBlur = 12 * dpr;
-        ctx.shadowColor = "rgba(255, 220, 80, 0.9)";
         const dotR = 4 * dpr;
         const dot = ctx.createRadialGradient(cx, cy, 0, cx, cy, dotR);
         dot.addColorStop(0, "rgba(255, 255, 200, 1)");
@@ -225,7 +218,6 @@ export default function HalVoice() {
         ctx.beginPath();
         ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowBlur = 0;
       }
 
       raf = requestAnimationFrame(draw);
