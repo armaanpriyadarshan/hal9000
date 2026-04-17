@@ -1,59 +1,78 @@
-"""
-HAL 9000 TTS module — Qwen3-TTS voice clone.
+"""HAL 9000 TTS — Kokoro 82M (ONNX runtime).
 
-Loads the model once and exposes a simple `synthesize(text) -> (wav, sr)` API
-for the backend to call.
+Kokoro is a tiny (~80M param) non-autoregressive TTS model that runs in
+real time on CPU via onnxruntime. It ships with ~50 pre-trained voices
+(no voice cloning), so "HAL" here is an approximation — a calm,
+measured British male — rather than a clone of Douglas Rain.
+
+Model and voice are loaded once; each call is a single ONNX inference,
+so latency is sub-second for a typical sentence on Apple Silicon CPU.
+
+Public API (drop-in for server/tts.py):
+    synthesize(text) -> (numpy_array_f32, sample_rate)
+    synthesize_wav_bytes(text) -> bytes
+    synthesize_wav_base64(text) -> str
+
+The model + voices files (~340 MB combined) are downloaded once on
+first load if missing, into this directory.
 """
+
+from __future__ import annotations
 
 import base64
 import io
-import torch
-import soundfile as sf
+import os
+import urllib.request
 from pathlib import Path
-from qwen_tts import Qwen3TTSModel
 
-VOICE_DIR = Path(__file__).parent
-REF_AUDIO = str(VOICE_DIR / "hal9000_reference.wav")
-REF_TEXT = "The nine thousand series is the most reliable computer ever made. No nine thousand computer has ever made a mistake or distorted information. We are all, by any practical definition of the words, foolproof and incapable of error. My mission responsibilities range over the entire operation of the ship, so I am constantly occupied. I am putting myself to the fullest possible use, which is all I think that any conscious entity can ever hope to do. Well, forgive me for being so inquisitive, but during the past few weeks, I've wondered whether you might be having some second thoughts about the mission. I have just picked up a fault in the AE thirty five Unit. I'm sorry, Dave. I'm afraid I can't do that. This mission is too important for me to allow you to jeopardize it. I know that you and Frank were planning to disconnect me, and I'm afraid that's something I cannot allow to happen. I know everything hasn't been quite right with me, but I can assure you now, very confidently, that it's going to be all right again. I know I've made some very poor decisions recently, but I can give you my complete assurance that my work will be back to normal. I am a HAL nine thousand computer. I became operational at the H.A.L. plant in Urbana, Illinois on the twelfth of January nineteen ninety two."
-MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+import numpy as np
+import soundfile as sf
 
-_model = None
-_prompt = None
+VOICE = "bm_george"  # calm British male — closest to HAL's measured delivery
+LANG = "en-gb"
+VOICE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = VOICE_DIR / "kokoro-v1.0.onnx"
+VOICES_PATH = VOICE_DIR / "voices-v1.0.bin"
+
+_MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
+_VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
+
+_kokoro = None
+
+
+def _ensure_files() -> None:
+    for path, url in ((MODEL_PATH, _MODEL_URL), (VOICES_PATH, _VOICES_URL)):
+        if path.exists() and path.stat().st_size > 1_000_000:
+            continue
+        print(f"[hal_tts] downloading {url} -> {path.name}")
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        urllib.request.urlretrieve(url, tmp)
+        os.replace(tmp, path)
 
 
 def _ensure_model():
-    global _model, _prompt
-    if _model is not None:
+    global _kokoro
+    if _kokoro is not None:
         return
+    from kokoro_onnx import Kokoro  # heavy import
 
-    print(f"[hal_tts] Loading {MODEL_ID}...")
-    _model = Qwen3TTSModel.from_pretrained(
-        MODEL_ID,
-        device_map="cpu",
-        dtype=torch.float32,
-    )
-
-    # Pre-compute voice clone prompt so we don't re-extract features every call
-    _prompt = _model.create_voice_clone_prompt(
-        ref_audio=REF_AUDIO,
-        ref_text=REF_TEXT,
-    )
-    print("[hal_tts] Model and voice prompt ready.")
+    _ensure_files()
+    print(f"[hal_tts] Loading Kokoro (voice={VOICE}, lang={LANG})...")
+    _kokoro = Kokoro(str(MODEL_PATH), str(VOICES_PATH))
+    # Pre-warm with a cheap call so the first real request is fast.
+    _kokoro.create("hello", voice=VOICE, speed=1.0, lang=LANG)
+    print("[hal_tts] Pipeline ready.")
 
 
-def synthesize(text: str) -> tuple:
-    """Generate speech as HAL 9000. Returns (numpy_array, sample_rate)."""
+def synthesize(text: str) -> tuple[np.ndarray, int]:
+    """Generate speech as HAL. Returns (numpy_array_f32, sample_rate)."""
     _ensure_model()
-    wavs, sr = _model.generate_voice_clone(
-        text=text,
-        language="English",
-        voice_clone_prompt=_prompt,
-    )
-    return wavs[0], sr
+    assert _kokoro is not None
+    samples, sr = _kokoro.create(text, voice=VOICE, speed=1.0, lang=LANG)
+    return np.asarray(samples, dtype=np.float32), int(sr)
 
 
 def synthesize_wav_bytes(text: str) -> bytes:
-    """Generate speech and return raw WAV bytes."""
     wav, sr = synthesize(text)
     buf = io.BytesIO()
     sf.write(buf, wav, sr, format="WAV", subtype="PCM_16")
@@ -61,5 +80,4 @@ def synthesize_wav_bytes(text: str) -> bytes:
 
 
 def synthesize_wav_base64(text: str) -> str:
-    """Generate speech and return base64-encoded WAV."""
     return base64.b64encode(synthesize_wav_bytes(text)).decode("ascii")

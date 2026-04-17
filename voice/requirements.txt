@@ -1,3 +1,2 @@
-qwen-tts
-torch
+kokoro-onnx>=0.4
 soundfile
