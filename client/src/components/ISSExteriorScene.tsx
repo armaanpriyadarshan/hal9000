@@ -100,8 +100,8 @@ function HologramModel() {
     const size = box.getSize(new THREE.Vector3());
     const diag = size.length();
 
-    const startDistance = diag * 0.75;
-    const maxDistance = diag * 0.95;
+    const startDistance = diag * 1.1;
+    const maxDistance = diag * 1.8;
     const minDistance = diag * 0.05;
 
     camera.position.set(center.x, center.y, center.z + startDistance);
