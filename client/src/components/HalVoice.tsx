@@ -52,7 +52,8 @@ type Target = {
 
 const CANVAS_PX = 340;
 const EYE_R = 44;
-const RING_R = 105;
+const BLACK_R = 70;
+const RING_R = 70;
 const RING_AMP_REC = 28;
 const RING_AMP_SPK = 42;
 
@@ -187,26 +188,13 @@ export default function HalVoice() {
       // HAL eye
       if (s.eyeR > 0.5) {
         const eyeR = s.eyeR * pulse * dpr;
-        const bezelW = 8 * dpr;
-        const bezelR = eyeR + bezelW;
+        const blackR = BLACK_R * dpr;
 
-        // Metallic bezel ring
+        // Black disc behind the eye
         ctx.shadowBlur = 0;
-        const bezel = ctx.createRadialGradient(cx, cy - bezelR * 0.3, 0, cx, cy, bezelR * 1.1);
-        bezel.addColorStop(0, "rgba(200, 200, 210, 0.9)");
-        bezel.addColorStop(0.3, "rgba(120, 120, 130, 0.85)");
-        bezel.addColorStop(0.6, "rgba(70, 70, 80, 0.8)");
-        bezel.addColorStop(0.85, "rgba(140, 140, 150, 0.85)");
-        bezel.addColorStop(1, "rgba(50, 50, 55, 0.9)");
-        ctx.fillStyle = bezel;
-        ctx.beginPath();
-        ctx.arc(cx, cy, bezelR, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Black gap between bezel and eye
         ctx.fillStyle = "#000";
         ctx.beginPath();
-        ctx.arc(cx, cy, eyeR + 1 * dpr, 0, Math.PI * 2);
+        ctx.arc(cx, cy, blackR, 0, Math.PI * 2);
         ctx.fill();
 
         // Red glow halo
