@@ -19,11 +19,11 @@ const RING_AMP_REC = 28;
 const RING_AMP_SPK = 42;
 
 const PHASE_TARGET: Record<Phase, Target> = {
-  idle:      { ringR: 0,      ringAmp: 0,           ringAlpha: 0, eyeR: 0,     eyePulse: 0,    blackR: 0 },
-  ready:     { ringR: 0,      ringAmp: 0,           ringAlpha: 0, eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
-  recording: { ringR: RING_R, ringAmp: RING_AMP_REC, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
-  thinking:  { ringR: EYE_R,  ringAmp: 0,           ringAlpha: 0, eyeR: EYE_R, eyePulse: 0.18, blackR: 0 },
-  speaking:  { ringR: RING_R, ringAmp: RING_AMP_SPK, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
+  idle:      { ringR: 0,      ringAmp: 0,           ringAlpha: 0,    eyeR: 0,     eyePulse: 0,    blackR: 0 },
+  ready:     { ringR: RING_R, ringAmp: 0,           ringAlpha: 0.4,  eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
+  recording: { ringR: RING_R, ringAmp: RING_AMP_REC, ringAlpha: 1,    eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
+  thinking:  { ringR: EYE_R,  ringAmp: 0,           ringAlpha: 0,    eyeR: EYE_R, eyePulse: 0.18, blackR: 0 },
+  speaking:  { ringR: RING_R, ringAmp: RING_AMP_SPK, ringAlpha: 1,    eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
 };
 
 const WAVE_POINTS = 128;
