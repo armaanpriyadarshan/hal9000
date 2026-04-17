@@ -101,18 +101,12 @@ export function attachVisualizer({ canvas, phaseRef, analyserRef }: VisualizerRe
   const drawEye = (cx: number, cy: number, pulse: number) => {
     const eyeR = s.eyeR * pulse * dpr;
     const blackR = eyeR * (BLACK_R / EYE_R);
-    const fadeR = blackR * 1.3;
 
-    // Black surround — soft feathered edge, scales with eye
+    // Black surround — hard edge, scales with eye
     ctx.shadowBlur = 0;
-    const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, fadeR);
-    bg.addColorStop(0, "rgba(0, 0, 0, 1)");
-    bg.addColorStop(0.7, "rgba(0, 0, 0, 1)");
-    bg.addColorStop(0.85, "rgba(0, 0, 0, 0.6)");
-    bg.addColorStop(1, "rgba(0, 0, 0, 0)");
-    ctx.fillStyle = bg;
+    ctx.fillStyle = "#000";
     ctx.beginPath();
-    ctx.arc(cx, cy, fadeR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, blackR, 0, Math.PI * 2);
     ctx.fill();
 
     // Red glow
