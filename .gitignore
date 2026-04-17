@@ -7,5 +7,6 @@ weights/
 server/.venv/
 server/corpus/*.bin
 server/corpus_raw/
+voice/venv/
 **/__pycache__/
 **/.DS_Store
