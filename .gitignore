@@ -2,3 +2,9 @@ node_modules/
 .next/
 client/public/*.glb
 cactus/
+.playwright-mcp/
+hal9000-*.png
+weights/
+agent/__pycache__/
+agent/.venv/
+**/__pycache__/
