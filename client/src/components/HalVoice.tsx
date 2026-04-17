@@ -145,20 +145,23 @@ export default function HalVoice() {
         }
 
         const halfBars = NUM_BARS / 2;
-        const usableBins = Math.min(freqBuf.length, 192);
+        // Speech energy lives in the bottom quarter of the spectrum — only
+        // sample those bins so bars actually move instead of flatlining.
+        const usableBins = Math.min(freqBuf.length, 96);
         const binsPerBar = Math.max(1, Math.floor(usableBins / halfBars));
 
         for (let i = 0; i < NUM_BARS; i++) {
-          const mirrored = i < halfBars ? i : NUM_BARS - 1 - (i - halfBars);
+          // Mirror the bottom half around the vertical axis for symmetry.
+          const idx = i < halfBars ? i : NUM_BARS - 1 - i;
           let sum = 0;
           if (haveAudio) {
-            const base = mirrored * binsPerBar;
+            const base = idx * binsPerBar;
             for (let j = 0; j < binsPerBar; j++) sum += freqBuf[base + j] || 0;
             sum /= binsPerBar;
           }
           const raw = sum / 255;
-          const boosted = Math.pow(raw, 0.7);
-          smoothed[i] = smoothed[i] * 0.72 + boosted * 0.28;
+          const boosted = Math.pow(raw, 0.6);
+          smoothed[i] = smoothed[i] * 0.45 + boosted * 0.55;
         }
 
         const innerR = s.ringR * dpr;
@@ -250,7 +253,8 @@ export default function HalVoice() {
       const ac = await getAudioCtx();
       const src = ac.createMediaStreamSource(stream);
       const node = ac.createAnalyser();
-      node.fftSize = 512;
+      node.fftSize = 1024;
+      node.smoothingTimeConstant = 0.35;
       src.connect(node);
       analyserRef.current = node;
 
@@ -289,7 +293,8 @@ export default function HalVoice() {
           if (cancelledRef.current) { cancelledRef.current = false; return; }
           const src2 = ac2.createBufferSource();
           const ana = ac2.createAnalyser();
-          ana.fftSize = 512;
+          ana.fftSize = 1024;
+          ana.smoothingTimeConstant = 0.35;
           src2.buffer = audioBuf;
           src2.connect(ana);
           ana.connect(ac2.destination);
@@ -359,7 +364,8 @@ export default function HalVoice() {
         }
         return;
       }
-      if (e.key !== "Enter") return;
+      if (e.key !== " " && e.code !== "Space") return;
+      if (e.repeat) return;
       e.preventDefault();
       const cur = phaseRef.current;
       if (cur === "recording") stopRecording();
