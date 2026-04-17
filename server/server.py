@@ -40,7 +40,7 @@ from config import (
 )
 from rag import EmbedRagIndex, build_context_block
 from tools import TOOL_SCHEMAS, dispatch
-from tts import synth_wav_base64
+from tts import synth_wav_base64, synth_wav_bytes
 
 
 class AppState:
@@ -117,6 +117,8 @@ async def lifespan(_app: FastAPI):
     state.rag = EmbedRagIndex(EMBED_MODEL, CORPUS_DIR, cache_index=True)
     print(f"Loading STT model {STT_MODEL}...", flush=True)
     state.stt = Transcriber(STT_MODEL)
+    print("Warming HAL TTS (first call loads Qwen3-TTS into RAM)...", flush=True)
+    synth_wav_bytes("Initialized.")
     reset_conversation()
     print("All models ready.", flush=True)
     yield
