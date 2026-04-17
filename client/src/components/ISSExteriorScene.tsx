@@ -15,9 +15,8 @@ function HologramModel() {
     const surfaceMat = new THREE.MeshBasicMaterial({
       color: 0x66ccff,
       transparent: true,
-      opacity: 0.12,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.25,
+      side: THREE.FrontSide,
       depthWrite: false,
     });
     const lineMat = new THREE.LineBasicMaterial({
