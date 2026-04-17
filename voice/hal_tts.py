@@ -1,16 +1,15 @@
-"""HAL 9000 TTS — Piper, trained on the HAL audio dataset.
+"""HAL 9000 TTS — Piper, pre-trained HAL voice from
+huggingface.co/campwill/HAL-9000-Piper-TTS.
 
-Inference backend: Piper (VITS-based, ONNX runtime). Single-voice
-model fine-tuned on `voice/audio/*.wav` via piper1-gpl. Runs in
-real time on CPU.
+Inference backend: Piper (VITS-based, ONNX runtime). Runs in real
+time on CPU.
 
-Expects the trained artifacts next to this file:
-    voice/hal.onnx         ONNX weights
-    voice/hal.onnx.json    voice config produced by Piper
+Expects the weights next to this file:
+    voice/hal.onnx         ONNX model
+    voice/hal.onnx.json    voice config
 
-If those files are absent, every `synthesize*` call raises; the
-server-side wrapper (server/tts.py) catches and falls back to
-macOS `say` automatically.
+If either is missing, every `synthesize*` call raises; the server
+wrapper (server/tts.py) catches and falls back to macOS `say`.
 
 Public API (drop-in for server/tts.py):
     synthesize(text) -> (numpy_array_f32, sample_rate)
@@ -40,9 +39,10 @@ def _ensure_voice():
         return
     if not MODEL_PATH.exists() or not CONFIG_PATH.exists():
         raise RuntimeError(
-            f"Piper HAL model not found. Expected {MODEL_PATH.name} and "
-            f"{CONFIG_PATH.name} in {VOICE_DIR}. Train one with the "
-            "instructions in voice/README.md."
+            f"Piper HAL weights not found. Expected {MODEL_PATH.name} and "
+            f"{CONFIG_PATH.name} in {VOICE_DIR}. Download them with:\n"
+            f"  hf download campwill/HAL-9000-Piper-TTS hal.onnx hal.onnx.json "
+            f"--local-dir {VOICE_DIR}"
         )
     from piper import PiperVoice  # type: ignore
     print(f"[hal_tts] Loading Piper voice from {MODEL_PATH.name}...")
@@ -54,13 +54,14 @@ def synthesize(text: str) -> tuple[np.ndarray, int]:
     """Generate speech as HAL. Returns (float32 numpy array, sample rate)."""
     _ensure_voice()
     assert _voice is not None
-    # PiperVoice.synthesize_stream_raw yields int16 PCM chunks.
-    pcm_chunks = list(_voice.synthesize_stream_raw(text))
-    if not pcm_chunks:
-        return np.zeros(0, dtype=np.float32), _voice.config.sample_rate
-    pcm = b"".join(pcm_chunks)
-    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
-    return samples, _voice.config.sample_rate
+    chunks = list(_voice.synthesize(text))
+    if not chunks:
+        return np.zeros(0, dtype=np.float32), 22050
+    sr = chunks[0].sample_rate
+    samples = np.concatenate(
+        [c.audio_int16_array.astype(np.float32) / 32768.0 for c in chunks]
+    )
+    return samples, sr
 
 
 def synthesize_wav_bytes(text: str) -> bytes:
