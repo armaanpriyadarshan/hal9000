@@ -3,17 +3,17 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 
-const ISSInteriorScene = dynamic(() => import("@/components/ISSInteriorScene"), { ssr: false });
+const ISSExteriorScene = dynamic(() => import("@/components/ISSExteriorScene"), { ssr: false });
 
-export default function Home() {
+export default function Exterior() {
   return (
     <div className="h-screen w-screen relative">
-      <ISSInteriorScene />
+      <ISSExteriorScene />
       <Link
-        href="/exterior"
+        href="/"
         className="absolute top-4 right-4 z-10 px-4 py-2 font-mono text-sm text-white bg-black/50 border border-white/80 hover:bg-black/70"
       >
-        View Exterior
+        View Interior
       </Link>
     </div>
   );
