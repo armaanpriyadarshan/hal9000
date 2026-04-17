@@ -1,9 +1,16 @@
 "use client";
 
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect } from "react";
 import * as THREE from "three";
+
+type OrbitControlsLike = {
+  target: THREE.Vector3;
+  maxDistance: number;
+  minDistance: number;
+  update: () => void;
+};
 
 const HOLOGRAM_VERSION = "fresnel-v1";
 const HIGH_VERTEX_COUNT = 2000;
@@ -40,6 +47,8 @@ const FRAGMENT_SHADER = `
 
 function HologramModel() {
   const { scene } = useGLTF("/iss-exterior.glb");
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls) as OrbitControlsLike | null;
 
   useEffect(() => {
     const surfaceMat = new THREE.ShaderMaterial({
@@ -84,7 +93,31 @@ function HologramModel() {
       }
       child.userData.hologramVersion = HOLOGRAM_VERSION;
     });
-  }, [scene]);
+
+    scene.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(scene);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const diag = size.length();
+
+    const startDistance = diag * 0.75;
+    const maxDistance = diag * 0.95;
+    const minDistance = diag * 0.05;
+
+    camera.position.set(center.x, center.y, center.z + startDistance);
+    camera.lookAt(center);
+    if (camera instanceof THREE.PerspectiveCamera) {
+      camera.near = Math.max(diag * 0.001, 0.01);
+      camera.far = diag * 10;
+      camera.updateProjectionMatrix();
+    }
+    if (controls) {
+      controls.target.copy(center);
+      controls.maxDistance = maxDistance;
+      controls.minDistance = minDistance;
+      controls.update();
+    }
+  }, [scene, camera, controls]);
 
   return <primitive object={scene} />;
 }
@@ -96,7 +129,7 @@ export default function ISSExteriorScene() {
       <Suspense fallback={null}>
         <HologramModel />
       </Suspense>
-      <OrbitControls enableZoom enableDamping />
+      <OrbitControls enableZoom enableDamping makeDefault />
     </Canvas>
   );
 }
