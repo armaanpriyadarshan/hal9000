@@ -98,7 +98,9 @@ export default function HalVoice() {
     resize();
     window.addEventListener("resize", resize);
 
-    const buf = new Uint8Array(256);
+    const NUM_BARS = 64;
+    const freqBuf = new Uint8Array(256);
+    const smoothed = new Float32Array(NUM_BARS);
     const s = { ringR: 0, ringAmp: 0, ringAlpha: 0, eyeR: 0, eyePulse: 0 };
     let pulsePhase = 0;
     let lastT = performance.now();
@@ -132,33 +134,59 @@ export default function HalVoice() {
       const cx = w / 2;
       const cy = h / 2;
 
-      // Waveform ring (outer)
+      // Circular equalizer
       if (s.ringAlpha > 0.01 && s.ringR > 0.5) {
-        let haveAudio = false;
         const live = analyserRef.current;
         const ph = phaseRef.current;
+        let haveAudio = false;
         if (live && (ph === "recording" || ph === "speaking")) {
-          live.getByteTimeDomainData(buf);
+          live.getByteFrequencyData(freqBuf);
           haveAudio = true;
         }
-        ctx.globalAlpha = s.ringAlpha;
-        ctx.lineWidth = 2 * dpr;
-        ctx.strokeStyle = "rgba(255, 110, 70, 1)";
-        ctx.shadowColor = "rgba(255, 60, 30, 0.95)";
-        ctx.shadowBlur = 28 * dpr;
-        ctx.beginPath();
-        const N = buf.length;
-        for (let i = 0; i <= N; i++) {
-          const idx = i % N;
-          const v = haveAudio ? (buf[idx] - 128) / 128 : 0;
-          const r = (s.ringR + v * s.ringAmp) * dpr;
-          const a = (i / N) * Math.PI * 2 - Math.PI / 2;
-          const x = cx + Math.cos(a) * r;
-          const y = cy + Math.sin(a) * r;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+
+        const halfBars = NUM_BARS / 2;
+        const usableBins = Math.min(freqBuf.length, 192);
+        const binsPerBar = Math.max(1, Math.floor(usableBins / halfBars));
+
+        for (let i = 0; i < NUM_BARS; i++) {
+          const mirrored = i < halfBars ? i : NUM_BARS - 1 - (i - halfBars);
+          let sum = 0;
+          if (haveAudio) {
+            const base = mirrored * binsPerBar;
+            for (let j = 0; j < binsPerBar; j++) sum += freqBuf[base + j] || 0;
+            sum /= binsPerBar;
+          }
+          const raw = sum / 255;
+          const boosted = Math.pow(raw, 0.7);
+          smoothed[i] = smoothed[i] * 0.72 + boosted * 0.28;
         }
-        ctx.stroke();
+
+        const innerR = s.ringR * dpr;
+        const barWidth = Math.max(2 * dpr, (2 * Math.PI * innerR) / NUM_BARS * 0.55);
+        ctx.globalAlpha = s.ringAlpha;
+        ctx.lineCap = "round";
+        ctx.lineWidth = barWidth;
+        ctx.strokeStyle = "rgba(255, 120, 80, 1)";
+        ctx.shadowColor = "rgba(255, 70, 30, 0.95)";
+        ctx.shadowBlur = 22 * dpr;
+
+        const baselineLen = 4 * dpr;
+        const ampPx = s.ringAmp * 1.6 * dpr;
+
+        for (let i = 0; i < NUM_BARS; i++) {
+          const len = baselineLen + smoothed[i] * ampPx;
+          const a = (i / NUM_BARS) * Math.PI * 2 - Math.PI / 2;
+          const ca = Math.cos(a);
+          const sa = Math.sin(a);
+          const x1 = cx + ca * innerR;
+          const y1 = cy + sa * innerR;
+          const x2 = cx + ca * (innerR + len);
+          const y2 = cy + sa * (innerR + len);
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+        }
         ctx.globalAlpha = 1;
       }
 
