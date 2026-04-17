@@ -28,8 +28,8 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-VOICE = "bm_george"  # calm British male — closest to HAL's measured delivery
-LANG = "en-gb"
+VOICE = "am_adam"  # deep American male — deliberate, grave, close to HAL's delivery
+LANG = "en-us"
 VOICE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = VOICE_DIR / "kokoro-v1.0.onnx"
 VOICES_PATH = VOICE_DIR / "voices-v1.0.bin"
