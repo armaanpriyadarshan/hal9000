@@ -39,14 +39,21 @@ Single source of truth for tool definitions. Exports:
 
 - **`cactus_tools_json() -> list[dict]`** — converts `TOOL_SPECS` into the OpenAI-style payload Cactus expects (`[{"type": "function", "function": {name, description, parameters}}]`).
 
-- **`dispatch(function_calls: list[dict]) -> DispatchResult`** — runs every function call through validation + dispatch. Returns:
+- **`dispatch(function_calls: list[dict]) -> DispatchResult`** — runs every function call through JSON-schema validation + dispatch. Returns:
   ```python
   @dataclass
   class DispatchResult:
       ack_text: str                          # what TTS should synthesise
-      client_directives: list[dict]          # {name, arguments} for the browser
-      failed_calls: list[dict]               # {name, arguments, reason}
+      client_directives: list[ClientDirective]  # for the browser
+      failed_calls: list[FailedCall]
   ```
+  Where:
+  ```python
+  ClientDirective = TypedDict("ClientDirective", {"name": str, "arguments": dict})
+  FailedCall     = TypedDict("FailedCall",     {"name": str, "arguments": dict, "reason": str})
+  ```
+
+Validation uses the `jsonschema` package (added as a runtime dep to `server/requirements.txt`).
 
 ### `server/server.py` (modified)
 
@@ -199,7 +206,7 @@ Seven pure-function unit tests against `tools.dispatch`:
 6. Mix of valid + invalid → valid dispatched; generic suffix appended.
 7. Malformed payload (non-list, missing keys) → empty `DispatchResult`.
 
-Runs via `server/.venv/bin/python -m pytest server/tests`. Adds `pytest` and `jsonschema` to `server/requirements.txt`.
+Runs via `server/.venv/bin/python -m pytest server/tests`. Adds `pytest` as a dev dep. (`jsonschema` is already pulled in as a runtime dep — see Architecture.)
 
 ### Client — none in v1
 
