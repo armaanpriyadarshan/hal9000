@@ -24,6 +24,8 @@ const FRAGMENT_SHADER = `
   uniform vec3 baseColor;
   uniform vec3 rimColor;
   uniform float rimPower;
+  uniform float baseAlpha;
+  uniform float rimAlpha;
   varying vec3 vNormal;
   varying vec3 vViewPos;
   void main() {
@@ -31,7 +33,8 @@ const FRAGMENT_SHADER = `
     vec3 N = normalize(vNormal);
     float fresnel = pow(1.0 - max(dot(N, V), 0.0), rimPower);
     vec3 color = mix(baseColor, rimColor, fresnel);
-    gl_FragColor = vec4(color, 1.0);
+    float alpha = mix(baseAlpha, rimAlpha, fresnel);
+    gl_FragColor = vec4(color, alpha);
   }
 `;
 
@@ -44,10 +47,14 @@ function HologramModel() {
         baseColor: { value: new THREE.Color(0x4a9cc2) },
         rimColor: { value: new THREE.Color(0xddf5ff) },
         rimPower: { value: 2.5 },
+        baseAlpha: { value: 0.15 },
+        rimAlpha: { value: 0.95 },
       },
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
       side: THREE.FrontSide,
+      transparent: true,
+      depthWrite: false,
     });
     const lineMat = new THREE.LineBasicMaterial({
       color: 0xccf5ff,
