@@ -13,7 +13,7 @@ import {
   attachVisualizer,
 } from "@/lib/halVisualizer";
 
-const SERVER = "http://10.21.80.88:8000";
+const SERVER = process.env.NEXT_PUBLIC_HAL_SERVER ?? defaultServerUrl();
 
 export default function HalVoice() {
   const phaseRef = useRef<Phase>("idle");
