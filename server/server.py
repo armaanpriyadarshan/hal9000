@@ -7,28 +7,46 @@ Endpoints:
                                                                     16 kHz mono PCM)
 - POST /api/reset       -> {"ok": true}                            (clears conversation)
 
-Gemma 4 E2B is loaded once at startup. Conversation state is process-local
-(single-user). Run with:
+Gemma 4 E2B is loaded once at startup for chat. A second model
+(Qwen3-Embedding-0.6B) owns the RAG index — its embedding space is
+purpose-built for retrieval and performs far better than using
+Gemma's own embeddings. A third model (Parakeet) transcribes the
+mic so voice turns can also hit RAG. Retrieved chunks are injected
+into Gemma's system prompt each turn without polluting the stored
+conversation.
+
+Run with:
 
     server/.venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port 8000
 """
 
 import json
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from cactus_runtime import CactusSession
-from config import COMPLETION_OPTIONS, CORPUS_DIR, LLM_MODEL, SYSTEM_PROMPT
+from cactus_runtime import CactusSession, Transcriber
+from config import (
+    COMPLETION_OPTIONS,
+    CORPUS_DIR,
+    EMBED_MODEL,
+    LLM_MODEL,
+    STT_MODEL,
+    SYSTEM_PROMPT,
+)
+from rag import EmbedRagIndex, build_context_block
 from tools import TOOL_SCHEMAS, dispatch
 from tts import synth_wav_base64
 
 
 class AppState:
     llm: CactusSession | None = None
+    rag: EmbedRagIndex | None = None
+    stt: Transcriber | None = None
     messages: list[dict[str, Any]] = []
 
 
@@ -39,10 +57,30 @@ def reset_conversation() -> None:
     state.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
 
-def run_turn(pcm_data: bytes | None = None) -> dict[str, Any]:
+def messages_with_context(query_text: str) -> list[dict[str, Any]]:
+    """Return a copy of state.messages with the latest RAG context
+    injected into the system message. The stored conversation stays
+    clean so next turn gets fresh retrieval."""
+    msgs = deepcopy(state.messages)
+    if not state.rag or not query_text.strip():
+        return msgs
+    chunks = state.rag.query(query_text, top_k=3)
+    ctx = build_context_block(chunks)
+    if not ctx:
+        return msgs
+    if msgs and msgs[0].get("role") == "system":
+        msgs[0] = {**msgs[0], "content": ctx + msgs[0]["content"]}
+    else:
+        msgs.insert(0, {"role": "system", "content": ctx + SYSTEM_PROMPT})
+    return msgs
+
+
+def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     assert state.llm is not None
+    prompt_messages = messages_with_context(query_text)
+
     result = state.llm.complete(
-        state.messages,
+        prompt_messages,
         tools=TOOL_SCHEMAS,
         pcm_data=pcm_data,
         options=COMPLETION_OPTIONS,
@@ -60,7 +98,9 @@ def run_turn(pcm_data: bytes | None = None) -> dict[str, Any]:
             {"role": "tool", "content": json.dumps({"name": name, "content": tool_output})}
         )
         follow_up = state.llm.complete(
-            state.messages, tools=TOOL_SCHEMAS, options=COMPLETION_OPTIONS
+            messages_with_context(query_text),
+            tools=TOOL_SCHEMAS,
+            options=COMPLETION_OPTIONS,
         )
         reply = follow_up.get("response", reply) or reply
         thinking = follow_up.get("thinking", thinking) or thinking
@@ -71,11 +111,19 @@ def run_turn(pcm_data: bytes | None = None) -> dict[str, Any]:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    print(f"Loading {LLM_MODEL} with RAG corpus at {CORPUS_DIR}...", flush=True)
-    state.llm = CactusSession(LLM_MODEL, corpus_dir=CORPUS_DIR, cache_index=True)
+    print(f"Loading chat model {LLM_MODEL}...", flush=True)
+    state.llm = CactusSession(LLM_MODEL)
+    print(f"Loading embed model {EMBED_MODEL} with corpus {CORPUS_DIR}...", flush=True)
+    state.rag = EmbedRagIndex(EMBED_MODEL, CORPUS_DIR, cache_index=True)
+    print(f"Loading STT model {STT_MODEL}...", flush=True)
+    state.stt = Transcriber(STT_MODEL)
     reset_conversation()
-    print("Model ready.", flush=True)
+    print("All models ready.", flush=True)
     yield
+    if state.stt:
+        state.stt.close()
+    if state.rag:
+        state.rag.close()
     if state.llm:
         state.llm.close()
 
@@ -91,7 +139,13 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "model": LLM_MODEL, "turn_count": len(state.messages) - 1}
+    return {
+        "status": "ok",
+        "chat_model": LLM_MODEL,
+        "embed_model": EMBED_MODEL,
+        "stt_model": STT_MODEL,
+        "turn_count": max(0, len(state.messages) - 1),
+    }
 
 
 class TextIn(BaseModel):
@@ -101,14 +155,17 @@ class TextIn(BaseModel):
 @app.post("/api/text")
 def text(body: TextIn):
     state.messages.append({"role": "user", "content": body.text})
-    return run_turn()
+    return run_turn(query_text=body.text)
 
 
 @app.post("/api/voice")
 async def voice(request: Request):
     pcm = await request.body()
-    state.messages.append({"role": "user", "content": ""})
-    return run_turn(pcm_data=pcm)
+    # Transcribe so we have a text handle on the user's utterance for RAG.
+    # The raw PCM still goes to Gemma so its native audio understanding is preserved.
+    transcript = state.stt.transcribe(pcm) if state.stt else ""
+    state.messages.append({"role": "user", "content": transcript or ""})
+    return run_turn(query_text=transcript, pcm_data=pcm)
 
 
 @app.post("/api/reset")

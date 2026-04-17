@@ -8,3 +8,4 @@ server/.venv/
 server/corpus/*.bin
 server/corpus_raw/
 **/__pycache__/
+**/.DS_Store

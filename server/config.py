@@ -3,6 +3,7 @@
 from pathlib import Path
 
 LLM_MODEL = "google/gemma-4-E2B-it"
+EMBED_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 STT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
 
 WEIGHTS_ROOT = Path("/opt/homebrew/opt/cactus/libexec/weights")
