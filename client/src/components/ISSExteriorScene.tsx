@@ -1,7 +1,7 @@
 "use client";
 
 import { Canvas, useThree } from "@react-three/fiber";
-import { OrbitControls, useGLTF } from "@react-three/drei";
+import { OrbitControls, Stars, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect } from "react";
 import * as THREE from "three";
 
@@ -126,6 +126,7 @@ export default function ISSExteriorScene() {
   return (
     <Canvas camera={{ position: [0, 0, 30], fov: 50, near: 0.1, far: 1000 }}>
       <color attach="background" args={["#000000"]} />
+      <Stars radius={400} depth={120} count={6000} factor={5} saturation={0} fade speed={0.3} />
       <Suspense fallback={null}>
         <HologramModel />
       </Suspense>
