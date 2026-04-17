@@ -13,7 +13,7 @@ import {
   attachVisualizer,
 } from "@/lib/halVisualizer";
 
-const SERVER = process.env.NEXT_PUBLIC_HAL_SERVER ?? defaultServerUrl();
+const SERVER = "http://10.21.80.88:8000";
 
 export default function HalVoice() {
   const phaseRef = useRef<Phase>("idle");
@@ -83,7 +83,7 @@ export default function HalVoice() {
         try { playingSourceRef.current?.stop(); } catch {}
         analyserRef.current = null;
         playingSourceRef.current = null;
-        phaseRef.current = "idle";
+        phaseRef.current = "ready";
       }, durationMs);
     },
     [getAudioCtx],
@@ -113,12 +113,12 @@ export default function HalVoice() {
         if (cancelledRef.current) { cancelledRef.current = false; return; }
 
         if (!json.audio) {
-          phaseRef.current = "idle";
+          phaseRef.current = "ready";
           return;
         }
         await playReplyAudio(json.audio);
       } catch (err) {
-        if ((err as Error).name !== "AbortError") phaseRef.current = "idle";
+        if ((err as Error).name !== "AbortError") phaseRef.current = "ready";
       } finally {
         abortRef.current = null;
       }
@@ -197,7 +197,7 @@ export default function HalVoice() {
       e.preventDefault();
       const cur = phaseRef.current;
       if (cur === "recording") stopRecording();
-      else if (cur === "idle") startRecording();
+      else if (cur === "idle" || cur === "ready") startRecording();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

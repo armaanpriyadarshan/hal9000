@@ -1,6 +1,6 @@
 import type { MutableRefObject } from "react";
 
-export type Phase = "idle" | "recording" | "thinking" | "speaking";
+export type Phase = "idle" | "ready" | "recording" | "thinking" | "speaking";
 
 type Target = {
   ringR: number;
@@ -20,6 +20,7 @@ const RING_AMP_SPK = 42;
 
 const PHASE_TARGET: Record<Phase, Target> = {
   idle:      { ringR: 0,      ringAmp: 0,           ringAlpha: 0, eyeR: 0,     eyePulse: 0,    blackR: 0 },
+  ready:     { ringR: 0,      ringAmp: 0,           ringAlpha: 0, eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
   recording: { ringR: RING_R, ringAmp: RING_AMP_REC, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
   thinking:  { ringR: EYE_R,  ringAmp: 0,           ringAlpha: 0, eyeR: EYE_R, eyePulse: 0.18, blackR: 0 },
   speaking:  { ringR: RING_R, ringAmp: RING_AMP_SPK, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
