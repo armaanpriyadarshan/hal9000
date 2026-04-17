@@ -15,13 +15,6 @@ import {
 
 const SERVER = process.env.NEXT_PUBLIC_HAL_SERVER ?? defaultServerUrl();
 
-// VAD: RMS threshold in [0,1] on 8-bit time-domain (127-centered) samples.
-// Needs N consecutive above-threshold frames to start, M below to stop.
-const VAD_START_RMS = 0.06;
-const VAD_STOP_RMS = 0.025;
-const VAD_START_FRAMES = 3; // ~150 ms at rAF 60 Hz
-const VAD_STOP_FRAMES = 55; // ~900 ms of silence before stopping a recording
-
 export default function HalVoice() {
   const phaseRef = useRef<Phase>("idle");
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -36,9 +29,6 @@ export default function HalVoice() {
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
   const speakingTimeoutRef = useRef<number | null>(null);
-  const vadRafRef = useRef<number | null>(null);
-  const vadAboveRef = useRef(0);
-  const vadBelowRef = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -46,20 +36,12 @@ export default function HalVoice() {
     return attachVisualizer({ canvas, phaseRef, analyserRef });
   }, []);
 
-  const stopVadLoop = useCallback(() => {
-    if (vadRafRef.current !== null) {
-      cancelAnimationFrame(vadRafRef.current);
-      vadRafRef.current = null;
-    }
-  }, []);
-
   const stopMicStream = useCallback(() => {
-    stopVadLoop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     micAnalyserRef.current = null;
     analyserRef.current = null;
-  }, [stopVadLoop]);
+  }, []);
 
   const getAudioCtx = useCallback(async () => {
     let ac = audioCtxRef.current;
@@ -78,8 +60,9 @@ export default function HalVoice() {
     }
   }, []);
 
-  /** Grab the mic once (needs a user gesture) and keep it live for the
-   *  rest of the session so VAD can drive recording automatically. */
+  /** Grab the mic once (needs a user gesture) and keep it live. The
+   *  visualizer reads from its analyser during recording; the stream
+   *  is reused across turns so the user only grants permission once. */
   const ensureMicStream = useCallback(async () => {
     if (streamRef.current && micAnalyserRef.current) return;
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -116,8 +99,6 @@ export default function HalVoice() {
       };
       recorderRef.current = rec;
       rec.start();
-      vadAboveRef.current = 0;
-      vadBelowRef.current = 0;
       phaseRef.current = "recording";
     } catch {
       stopMicStream();
@@ -155,7 +136,6 @@ export default function HalVoice() {
         if (phaseRef.current !== "speaking") return;
         try { playingSourceRef.current?.stop(); } catch {}
         playingSourceRef.current = null;
-        // Hand the visualizer back to the mic analyser + return to ready.
         analyserRef.current = micAnalyserRef.current;
         phaseRef.current = "ready";
       }, durationMs);
@@ -212,58 +192,6 @@ export default function HalVoice() {
     phaseRef.current = "idle";
   }, [clearSpeakingTimeout, stopMicStream]);
 
-  // VAD loop: runs continuously, only acts when phase is ready or recording.
-  // In `ready`, triggers startRecording on sustained speech.
-  // In `recording`, triggers stopRecording on sustained silence.
-  useEffect(() => {
-    const tick = () => {
-      vadRafRef.current = requestAnimationFrame(tick);
-      const ana = micAnalyserRef.current;
-      const ph = phaseRef.current;
-      if (!ana || (ph !== "ready" && ph !== "recording")) {
-        vadAboveRef.current = 0;
-        vadBelowRef.current = 0;
-        return;
-      }
-      const buf = new Uint8Array(ana.fftSize);
-      ana.getByteTimeDomainData(buf);
-      let sumSq = 0;
-      for (let i = 0; i < buf.length; i++) {
-        const s = (buf[i] - 128) / 128;
-        sumSq += s * s;
-      }
-      const rms = Math.sqrt(sumSq / buf.length);
-
-      if (ph === "ready") {
-        if (rms > VAD_START_RMS) {
-          vadAboveRef.current++;
-          vadBelowRef.current = 0;
-          if (vadAboveRef.current >= VAD_START_FRAMES) {
-            vadAboveRef.current = 0;
-            startRecording();
-          }
-        } else {
-          vadAboveRef.current = 0;
-        }
-      } else if (ph === "recording") {
-        if (rms < VAD_STOP_RMS) {
-          vadBelowRef.current++;
-          vadAboveRef.current = 0;
-          if (vadBelowRef.current >= VAD_STOP_FRAMES) {
-            vadBelowRef.current = 0;
-            stopRecording();
-          }
-        } else {
-          vadBelowRef.current = 0;
-        }
-      }
-    };
-    vadRafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (vadRafRef.current !== null) cancelAnimationFrame(vadRafRef.current);
-    };
-  }, [startRecording, stopRecording]);
-
   useEffect(() => {
     const isEditable = (el: EventTarget | null) => {
       const node = el as HTMLElement | null;
@@ -287,25 +215,15 @@ export default function HalVoice() {
       if (e.repeat) return;
       e.preventDefault();
       const cur = phaseRef.current;
-      if (cur === "recording") stopRecording();
-      else if (cur === "idle") {
-        // First gesture: grant mic, then drop into "ready" and let VAD take over.
-        (async () => {
-          try {
-            await ensureMicStream();
-            phaseRef.current = "ready";
-          } catch {
-            stopMicStream();
-            phaseRef.current = "idle";
-          }
-        })();
-      } else if (cur === "ready") {
+      if (cur === "recording") {
+        stopRecording();
+      } else if (cur === "idle" || cur === "ready") {
         startRecording();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [cancel, ensureMicStream, startRecording, stopMicStream, stopRecording]);
+  }, [cancel, startRecording, stopRecording]);
 
   useEffect(() => {
     return () => {
