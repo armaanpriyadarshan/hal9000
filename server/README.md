@@ -2,7 +2,7 @@
 
 HTTP bridge for the Next.js client. Gemma 4 E2B handles chat with
 native audio-in; Qwen3-Embedding-0.6B drives RAG retrieval against
-`corpus/`; Kokoro-82M synthesises the reply voice. All three run
+`corpus/`; a Piper voice (pre-trained HAL from HF) synthesises the reply. All three run
 locally through Cactus, on CPU.
 
 ## Requirements
@@ -56,10 +56,13 @@ HF_HUB_ENABLE_HF_TRANSFER=1 cactus download google/gemma-4-E2B-it --reconvert
 # 8. Download the embedder (small and fast)
 cactus download Qwen/Qwen3-Embedding-0.6B
 
-# 9. Install the voice TTS deps (Kokoro lives under voice/)
+# 9. Install voice TTS deps (Piper) into server's venv, then pull the
+#    pre-trained HAL weights from HF
+cd ../server
+.venv/bin/pip install -r ../voice/requirements.txt
 cd ../voice
-/opt/homebrew/bin/python3.14 -m pip install -r requirements.txt \
-  --target "$(pwd)/../server/.venv/lib/python3.14/site-packages"
+../server/.venv/bin/hf download campwill/HAL-9000-Piper-TTS \
+  hal.onnx hal.onnx.json --local-dir .
 ```
 
 Step 7 takes ~15-25 min (downloads ~9 GB fp16, quantises to INT4).
@@ -91,9 +94,9 @@ Esc to cancel.
 | `config.py`          | model names, weights dir, system prompt, completion options |
 | `cactus_runtime.py`  | `CactusSession` wrapper around the Cactus FFI |
 | `rag.py`             | `EmbedRagIndex` + `build_context_block` (Qwen3-embed driven retrieval) |
-| `tts.py`             | `synth_wav_bytes` / `_base64` — Kokoro primary, macOS `say` fallback |
+| `tts.py`             | `synth_wav_bytes` / `_base64` — Piper primary (voice/hal.onnx), macOS `say` fallback |
 | `corpus/`            | 35 markdown reference files for RAG (ammonia, emergencies, systems, ops) |
-| `requirements.txt`   | fastapi, uvicorn, kokoro-onnx |
+| `requirements.txt`   | fastapi, uvicorn, piper-tts, onnxruntime, soundfile |
 
 ## Known issues
 
