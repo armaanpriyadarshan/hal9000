@@ -5,4 +5,5 @@ cactus/
 hal9000-*.png
 weights/
 server/.venv/
+server/corpus/*.bin
 **/__pycache__/

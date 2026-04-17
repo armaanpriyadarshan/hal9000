@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from cactus_runtime import CactusSession
-from config import COMPLETION_OPTIONS, LLM_MODEL, SYSTEM_PROMPT
+from config import COMPLETION_OPTIONS, CORPUS_DIR, LLM_MODEL, SYSTEM_PROMPT
 from tools import TOOL_SCHEMAS, dispatch
 from tts import synth_wav_base64
 
@@ -71,8 +71,8 @@ def run_turn(pcm_data: bytes | None = None) -> dict[str, Any]:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    print(f"Loading {LLM_MODEL}...", flush=True)
-    state.llm = CactusSession(LLM_MODEL)
+    print(f"Loading {LLM_MODEL} with RAG corpus at {CORPUS_DIR}...", flush=True)
+    state.llm = CactusSession(LLM_MODEL, corpus_dir=CORPUS_DIR, cache_index=True)
     reset_conversation()
     print("Model ready.", flush=True)
     yield

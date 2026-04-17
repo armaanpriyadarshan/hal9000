@@ -21,11 +21,22 @@ def resolve_weights(model_name: str) -> Path:
 
 
 class CactusSession:
-    """Long-lived Gemma 4 session. KV cache persists across turns."""
+    """Long-lived Gemma 4 session. KV cache persists across turns.
 
-    def __init__(self, model_name: str):
+    If `corpus_dir` points at a directory of txt/md files, Cactus builds
+    (or loads, with cache_index=True) a retrieval index; relevant chunks
+    are auto-injected into every completion.
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        corpus_dir: Path | None = None,
+        cache_index: bool = True,
+    ):
         self.weights = resolve_weights(model_name)
-        self.handle = cactus_init(str(self.weights), None, False)
+        corpus_arg = str(corpus_dir) if corpus_dir else None
+        self.handle = cactus_init(str(self.weights), corpus_arg, cache_index)
 
     def complete(
         self,
