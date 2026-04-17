@@ -53,15 +53,15 @@ type Target = {
 const CANVAS_PX = 340;
 const EYE_R = 44;
 const BLACK_R = 70;
-const RING_R = 70;
+const RING_R = 85;
 const RING_AMP_REC = 28;
 const RING_AMP_SPK = 42;
 
 const PHASE_TARGET: Record<Phase, Target> = {
-  idle:      { ringR: 0,      ringAmp: 0,           ringAlpha: 0, eyeR: 0,     eyePulse: 0 },
-  recording: { ringR: RING_R, ringAmp: RING_AMP_REC, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0 },
-  thinking:  { ringR: EYE_R,  ringAmp: 0,           ringAlpha: 0, eyeR: EYE_R, eyePulse: 0.18 },
-  speaking:  { ringR: RING_R, ringAmp: RING_AMP_SPK, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0 },
+  idle:      { ringR: 0,        ringAmp: 0,            ringAlpha: 0, eyeR: 0,     eyePulse: 0 },
+  recording: { ringR: RING_R,   ringAmp: RING_AMP_REC, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0 },
+  thinking:  { ringR: BLACK_R,  ringAmp: 0,            ringAlpha: 0, eyeR: EYE_R, eyePulse: 0.18 },
+  speaking:  { ringR: RING_R,   ringAmp: RING_AMP_SPK, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0 },
 };
 
 export default function HalVoice() {
@@ -163,26 +163,32 @@ export default function HalVoice() {
         const baseR = s.ringR * dpr;
         const ampPx = s.ringAmp * 1.8 * dpr;
 
-        ctx.globalAlpha = s.ringAlpha;
-        ctx.lineWidth = 2.5 * dpr;
-        ctx.strokeStyle = "rgba(255, 120, 80, 1)";
-        ctx.shadowColor = "rgba(255, 70, 30, 0.95)";
-        ctx.shadowBlur = 18 * dpr;
-        ctx.beginPath();
+        // Only draw waveform if there's actual audio displacement
+        let totalEnergy = 0;
+        for (let i = 0; i < WAVE_POINTS; i++) totalEnergy += smoothed[i];
 
-        for (let i = 0; i <= WAVE_POINTS; i++) {
-          const idx = i % WAVE_POINTS;
-          const a = (idx / WAVE_POINTS) * Math.PI * 2 - Math.PI / 2;
-          const r = baseR + smoothed[idx] * ampPx;
-          const x = cx + Math.cos(a) * r;
-          const y = cy + Math.sin(a) * r;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+        if (totalEnergy > 0.05) {
+          ctx.globalAlpha = s.ringAlpha;
+          ctx.lineWidth = 2.5 * dpr;
+          ctx.strokeStyle = "rgba(255, 120, 80, 1)";
+          ctx.shadowColor = "rgba(255, 70, 30, 0.95)";
+          ctx.shadowBlur = 18 * dpr;
+          ctx.beginPath();
+
+          for (let i = 0; i <= WAVE_POINTS; i++) {
+            const idx = i % WAVE_POINTS;
+            const a = (idx / WAVE_POINTS) * Math.PI * 2 - Math.PI / 2;
+            const r = baseR + smoothed[idx] * ampPx;
+            const x = cx + Math.cos(a) * r;
+            const y = cy + Math.sin(a) * r;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+
+          ctx.closePath();
+          ctx.stroke();
+          ctx.globalAlpha = 1;
         }
-
-        ctx.closePath();
-        ctx.stroke();
-        ctx.globalAlpha = 1;
       }
 
       // HAL eye
