@@ -197,29 +197,20 @@ export default function HalVoice() {
         ctx.arc(cx, cy, blackR, 0, Math.PI * 2);
         ctx.fill();
 
-        // Red glow halo
-        const haloR = eyeR * 1.6;
-        const halo = ctx.createRadialGradient(cx, cy, eyeR * 0.5, cx, cy, haloR);
-        halo.addColorStop(0, "rgba(200, 20, 0, 0.5)");
-        halo.addColorStop(1, "rgba(200, 20, 0, 0)");
-        ctx.fillStyle = halo;
-        ctx.beginPath();
-        ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Red disc
-        const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, eyeR);
+        // Red disc — gradient spans full black area, fades to black at edge
+        const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, blackR);
         disc.addColorStop(0, "rgba(255, 200, 50, 1)");
-        disc.addColorStop(0.08, "rgba(255, 160, 30, 1)");
-        disc.addColorStop(0.2, "rgba(230, 60, 10, 1)");
-        disc.addColorStop(0.5, "rgba(180, 15, 0, 1)");
-        disc.addColorStop(0.8, "rgba(100, 5, 0, 1)");
-        disc.addColorStop(1, "rgba(30, 0, 0, 1)");
+        disc.addColorStop(0.05, "rgba(255, 160, 30, 1)");
+        disc.addColorStop(0.12, "rgba(230, 60, 10, 1)");
+        disc.addColorStop(0.3, "rgba(180, 15, 0, 1)");
+        disc.addColorStop(0.55, "rgba(100, 5, 0, 1)");
+        disc.addColorStop(0.8, "rgba(30, 0, 0, 1)");
+        disc.addColorStop(1, "rgba(0, 0, 0, 1)");
         ctx.shadowColor = "rgba(255, 40, 10, 0.8)";
         ctx.shadowBlur = 30 * dpr;
         ctx.fillStyle = disc;
         ctx.beginPath();
-        ctx.arc(cx, cy, eyeR, 0, Math.PI * 2);
+        ctx.arc(cx, cy, blackR, 0, Math.PI * 2);
         ctx.fill();
 
         // Bright center dot
