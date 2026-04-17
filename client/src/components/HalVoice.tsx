@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Phase = "idle" | "recording" | "thinking" | "speaking";
 
-const SERVER = "http://10.21.80.88:3000";
+const SERVER = "http://10.21.80.88:8000";
 const TARGET_SAMPLE_RATE = 16_000;
 
 async function blobToInt16Pcm(blob: Blob): Promise<ArrayBuffer> {
@@ -197,14 +197,15 @@ export default function HalVoice() {
         ctx.arc(cx, cy, blackR, 0, Math.PI * 2);
         ctx.fill();
 
-        // Red disc — gradient spans to blackR so it fades smoothly into black
+        // Red disc — compact glow, mostly black surround
         const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, blackR);
         disc.addColorStop(0, "rgba(255, 200, 50, 1)");
-        disc.addColorStop(0.05, "rgba(255, 160, 30, 1)");
-        disc.addColorStop(0.12, "rgba(230, 60, 10, 1)");
-        disc.addColorStop(0.3, "rgba(180, 15, 0, 1)");
-        disc.addColorStop(0.55, "rgba(100, 5, 0, 0.9)");
-        disc.addColorStop(0.75, "rgba(40, 0, 0, 0.4)");
+        disc.addColorStop(0.04, "rgba(255, 160, 30, 1)");
+        disc.addColorStop(0.1, "rgba(230, 60, 10, 1)");
+        disc.addColorStop(0.22, "rgba(180, 15, 0, 1)");
+        disc.addColorStop(0.35, "rgba(80, 5, 0, 0.9)");
+        disc.addColorStop(0.45, "rgba(20, 0, 0, 0.6)");
+        disc.addColorStop(0.55, "rgba(0, 0, 0, 0)");
         disc.addColorStop(1, "rgba(0, 0, 0, 0)");
         ctx.shadowColor = "rgba(255, 40, 10, 0.8)";
         ctx.shadowBlur = 30 * dpr;
