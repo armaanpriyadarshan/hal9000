@@ -6,9 +6,12 @@ weights/
 server/.venv/
 server/corpus/*.bin
 voice/.venv/
-voice/ljspeech/
 voice/piper_cache/
 voice/hal.onnx
 voice/hal.onnx.json
+voice/checkpoints/
+voice/lightning_logs/
+voice/metadata_piper.csv
+voice/piper-train/
 **/__pycache__/
 **/.DS_Store
