@@ -100,7 +100,8 @@ export function attachVisualizer({ canvas, phaseRef, analyserRef }: VisualizerRe
 
   const drawEye = (cx: number, cy: number, pulse: number) => {
     const eyeR = s.eyeR * pulse * dpr;
-    const blackR = s.eyeR * (BLACK_R / EYE_R) * dpr;
+    const subtlePulse = 1 + (pulse - 1) * 0.3;
+    const blackR = s.eyeR * subtlePulse * (BLACK_R / EYE_R) * dpr;
 
     // Black surround — hard edge, scales with eye
     ctx.shadowBlur = 0;
