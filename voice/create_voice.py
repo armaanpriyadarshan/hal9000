@@ -28,8 +28,8 @@ DEFAULT_OUTPUT = str(VOICE_DIR / "test_output.wav")
 def load_model():
     return Qwen3TTSModel.from_pretrained(
         MODEL_ID,
-        device_map="cuda:0",
-        dtype=torch.bfloat16,
+        device_map="cpu",
+        dtype=torch.float32,
     )
 
 

@@ -29,8 +29,8 @@ def _ensure_model():
     print(f"[hal_tts] Loading {MODEL_ID}...")
     _model = Qwen3TTSModel.from_pretrained(
         MODEL_ID,
-        device_map="cuda:0",
-        dtype=torch.bfloat16,
+        device_map="cpu",
+        dtype=torch.float32,
     )
 
     # Pre-compute voice clone prompt so we don't re-extract features every call
