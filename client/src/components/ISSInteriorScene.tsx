@@ -6,7 +6,8 @@ import { Suspense, useEffect } from "react";
 import * as THREE from "three";
 
 const CAMERA_POSITION: [number, number, number] = [55.214, -0.95, -33.493];
-const CAMERA_TARGET: [number, number, number] = [55.214, -0.95, -34.493];
+// Rotated 90° right (clockwise around Y) from the original -Z heading.
+const CAMERA_TARGET: [number, number, number] = [54.214, -0.95, -33.493];
 
 function Model() {
   const { scene } = useGLTF("/iss-interior.glb");
