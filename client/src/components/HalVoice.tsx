@@ -254,13 +254,16 @@ export default function HalVoice() {
           ana.connect(ac2.destination);
           analyserRef.current = ana;
           playingSourceRef.current = src2;
-          src2.onended = () => {
+          setPhaseBoth("speaking");
+          src2.start();
+          const durationMs = Math.max(500, audioBuf.duration * 1000 + 250);
+          window.setTimeout(() => {
+            if (phaseRef.current !== "speaking") return;
+            try { playingSourceRef.current?.stop(); } catch {}
             analyserRef.current = null;
             playingSourceRef.current = null;
             setPhaseBoth("idle");
-          };
-          setPhaseBoth("speaking");
-          src2.start();
+          }, durationMs);
         } catch {
           stopInputStream();
           setPhaseBoth("idle");
