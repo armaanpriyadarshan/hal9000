@@ -8,6 +8,7 @@ type Target = {
   ringAlpha: number;
   eyeR: number;
   eyePulse: number;
+  blackR: number;
 };
 
 export const CANVAS_PX = 340;
@@ -18,10 +19,10 @@ const RING_AMP_REC = 28;
 const RING_AMP_SPK = 42;
 
 const PHASE_TARGET: Record<Phase, Target> = {
-  idle:      { ringR: 0,      ringAmp: 0,           ringAlpha: 0, eyeR: 0,     eyePulse: 0 },
-  recording: { ringR: RING_R, ringAmp: RING_AMP_REC, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0 },
-  thinking:  { ringR: EYE_R,  ringAmp: 0,           ringAlpha: 0, eyeR: EYE_R, eyePulse: 0.18 },
-  speaking:  { ringR: RING_R, ringAmp: RING_AMP_SPK, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0 },
+  idle:      { ringR: 0,      ringAmp: 0,           ringAlpha: 0, eyeR: 0,     eyePulse: 0,    blackR: 0 },
+  recording: { ringR: RING_R, ringAmp: RING_AMP_REC, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
+  thinking:  { ringR: EYE_R,  ringAmp: 0,           ringAlpha: 0, eyeR: EYE_R, eyePulse: 0.18, blackR: 0 },
+  speaking:  { ringR: RING_R, ringAmp: RING_AMP_SPK, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0,    blackR: BLACK_R },
 };
 
 const WAVE_POINTS = 128;
@@ -46,7 +47,7 @@ export function attachVisualizer({ canvas, phaseRef, analyserRef }: VisualizerRe
 
   const timeBuf = new Uint8Array(1024);
   const smoothed = new Float32Array(WAVE_POINTS);
-  const s = { ringR: 0, ringAmp: 0, ringAlpha: 0, eyeR: 0, eyePulse: 0 };
+  const s = { ringR: 0, ringAmp: 0, ringAlpha: 0, eyeR: 0, eyePulse: 0, blackR: 0 };
   let pulsePhase = 0;
   let lastT = performance.now();
   let raf = 0;
@@ -100,15 +101,16 @@ export function attachVisualizer({ canvas, phaseRef, analyserRef }: VisualizerRe
 
   const drawEye = (cx: number, cy: number, pulse: number) => {
     const eyeR = s.eyeR * pulse * dpr;
-    const subtlePulse = 1 + (pulse - 1) * 0.1;
-    const blackR = s.eyeR * subtlePulse * (BLACK_R / EYE_R) * dpr;
+    const blackR = s.blackR * dpr;
 
-    // Black surround — hard edge, scales with eye
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "#000";
-    ctx.beginPath();
-    ctx.arc(cx, cy, blackR, 0, Math.PI * 2);
-    ctx.fill();
+    // Black surround — collapses during thinking
+    if (blackR > 1) {
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      ctx.arc(cx, cy, blackR, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // Red glow
     const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, eyeR);
@@ -149,6 +151,7 @@ export function attachVisualizer({ canvas, phaseRef, analyserRef }: VisualizerRe
     s.ringAlpha = lerp(s.ringAlpha, tgt.ringAlpha, 9,  dt);
     s.eyeR      = lerp(s.eyeR,      tgt.eyeR,      10, dt);
     s.eyePulse  = lerp(s.eyePulse,  tgt.eyePulse,  6,  dt);
+    s.blackR    = lerp(s.blackR,    tgt.blackR,    6,  dt);
 
     pulsePhase += dt * 4.2;
     const pulse = 1 + Math.sin(pulsePhase) * s.eyePulse;
