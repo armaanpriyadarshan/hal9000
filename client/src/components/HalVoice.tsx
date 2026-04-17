@@ -80,6 +80,9 @@ export default function HalVoice() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const playingSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const cancelledRef = useRef(false);
+  const speakingTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -229,16 +232,25 @@ export default function HalVoice() {
       rec.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
         stopInputStream();
+        if (cancelledRef.current) {
+          cancelledRef.current = false;
+          setPhaseBoth("idle");
+          return;
+        }
         setPhaseBoth("thinking");
+        const ctrl = new AbortController();
+        abortRef.current = ctrl;
         try {
           const pcm = await blobToInt16Pcm(blob);
           const res = await fetch(`${SERVER}/api/voice`, {
             method: "POST",
             headers: { "Content-Type": "application/octet-stream" },
             body: pcm,
+            signal: ctrl.signal,
           });
           if (!res.ok) throw new Error(`server ${res.status}`);
           const json = await res.json();
+          if (cancelledRef.current) { cancelledRef.current = false; return; }
           const audioB64 = json.audio as string | undefined;
           if (!audioB64) {
             setPhaseBoth("idle");
@@ -246,6 +258,7 @@ export default function HalVoice() {
           }
           const ac2 = await getAudioCtx();
           const audioBuf = await ac2.decodeAudioData(base64ToArrayBuffer(audioB64));
+          if (cancelledRef.current) { cancelledRef.current = false; return; }
           const src2 = ac2.createBufferSource();
           const ana = ac2.createAnalyser();
           ana.fftSize = 512;
@@ -257,16 +270,18 @@ export default function HalVoice() {
           setPhaseBoth("speaking");
           src2.start();
           const durationMs = Math.max(500, audioBuf.duration * 1000 + 250);
-          window.setTimeout(() => {
+          speakingTimeoutRef.current = window.setTimeout(() => {
             if (phaseRef.current !== "speaking") return;
             try { playingSourceRef.current?.stop(); } catch {}
             analyserRef.current = null;
             playingSourceRef.current = null;
             setPhaseBoth("idle");
           }, durationMs);
-        } catch {
+        } catch (err) {
           stopInputStream();
-          setPhaseBoth("idle");
+          if ((err as Error).name !== "AbortError") setPhaseBoth("idle");
+        } finally {
+          abortRef.current = null;
         }
       };
       recorderRef.current = rec;
@@ -283,9 +298,23 @@ export default function HalVoice() {
     recorderRef.current = null;
   }, []);
 
+  const cancel = useCallback(() => {
+    cancelledRef.current = true;
+    abortRef.current?.abort();
+    if (speakingTimeoutRef.current !== null) {
+      window.clearTimeout(speakingTimeoutRef.current);
+      speakingTimeoutRef.current = null;
+    }
+    try { recorderRef.current?.stop(); } catch {}
+    recorderRef.current = null;
+    try { playingSourceRef.current?.stop(); } catch {}
+    playingSourceRef.current = null;
+    stopInputStream();
+    setPhaseBoth("idle");
+  }, [stopInputStream]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Enter") return;
       const target = e.target as HTMLElement | null;
       if (
         target &&
@@ -295,6 +324,14 @@ export default function HalVoice() {
       ) {
         return;
       }
+      if (e.key === "Escape") {
+        if (phaseRef.current !== "idle") {
+          e.preventDefault();
+          cancel();
+        }
+        return;
+      }
+      if (e.key !== "Enter") return;
       e.preventDefault();
       const cur = phaseRef.current;
       if (cur === "recording") stopRecording();
@@ -302,7 +339,7 @@ export default function HalVoice() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [startRecording, stopRecording]);
+  }, [cancel, startRecording, stopRecording]);
 
   useEffect(() => {
     return () => {
