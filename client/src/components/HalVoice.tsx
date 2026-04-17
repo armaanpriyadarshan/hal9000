@@ -14,6 +14,7 @@ import {
 } from "@/lib/halVisualizer";
 
 const SERVER = process.env.NEXT_PUBLIC_HAL_SERVER ?? defaultServerUrl();
+const READY_IDLE_MS = 6000;
 
 export default function HalVoice() {
   const phaseRef = useRef<Phase>("idle");
@@ -29,6 +30,7 @@ export default function HalVoice() {
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
   const speakingTimeoutRef = useRef<number | null>(null);
+  const idleTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -60,6 +62,28 @@ export default function HalVoice() {
     }
   }, []);
 
+  const clearIdleTimer = useCallback(() => {
+    if (idleTimeoutRef.current !== null) {
+      window.clearTimeout(idleTimeoutRef.current);
+      idleTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleIdleFade = useCallback(() => {
+    clearIdleTimer();
+    idleTimeoutRef.current = window.setTimeout(() => {
+      idleTimeoutRef.current = null;
+      if (phaseRef.current === "ready") {
+        phaseRef.current = "idle";
+      }
+    }, READY_IDLE_MS);
+  }, [clearIdleTimer]);
+
+  const enterReady = useCallback(() => {
+    phaseRef.current = "ready";
+    scheduleIdleFade();
+  }, [scheduleIdleFade]);
+
   /** Grab the mic once (needs a user gesture) and keep it live. The
    *  visualizer reads from its analyser during recording; the stream
    *  is reused across turns so the user only grants permission once. */
@@ -84,6 +108,7 @@ export default function HalVoice() {
   }, [getAudioCtx]);
 
   const startRecording = useCallback(async () => {
+    clearIdleTimer();
     try {
       await ensureMicStream();
       const stream = streamRef.current;
@@ -105,7 +130,7 @@ export default function HalVoice() {
       phaseRef.current = "idle";
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [clearIdleTimer]);
 
   const stopRecording = useCallback(() => {
     recorderRef.current?.stop();
@@ -137,10 +162,10 @@ export default function HalVoice() {
         try { playingSourceRef.current?.stop(); } catch {}
         playingSourceRef.current = null;
         analyserRef.current = micAnalyserRef.current;
-        phaseRef.current = "ready";
+        enterReady();
       }, durationMs);
     },
-    [getAudioCtx],
+    [enterReady, getAudioCtx],
   );
 
   const processRecording = useCallback(
@@ -167,30 +192,31 @@ export default function HalVoice() {
         if (cancelledRef.current) { cancelledRef.current = false; return; }
 
         if (!json.audio) {
-          phaseRef.current = "ready";
+          enterReady();
           return;
         }
         await playReplyAudio(json.audio);
       } catch (err) {
-        if ((err as Error).name !== "AbortError") phaseRef.current = "ready";
+        if ((err as Error).name !== "AbortError") enterReady();
       } finally {
         abortRef.current = null;
       }
     },
-    [playReplyAudio],
+    [enterReady, playReplyAudio],
   );
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;
     abortRef.current?.abort();
     clearSpeakingTimeout();
+    clearIdleTimer();
     try { recorderRef.current?.stop(); } catch {}
     recorderRef.current = null;
     try { playingSourceRef.current?.stop(); } catch {}
     playingSourceRef.current = null;
     stopMicStream();
     phaseRef.current = "idle";
-  }, [clearSpeakingTimeout, stopMicStream]);
+  }, [clearIdleTimer, clearSpeakingTimeout, stopMicStream]);
 
   useEffect(() => {
     const isEditable = (el: EventTarget | null) => {
