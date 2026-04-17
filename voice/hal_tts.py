@@ -1,75 +1,66 @@
-"""HAL 9000 TTS — Kokoro 82M (ONNX runtime).
+"""HAL 9000 TTS — Piper, trained on the HAL audio dataset.
 
-Kokoro is a tiny (~80M param) non-autoregressive TTS model that runs in
-real time on CPU via onnxruntime. It ships with ~50 pre-trained voices
-(no voice cloning), so "HAL" here is an approximation — a calm,
-measured British male — rather than a clone of Douglas Rain.
+Inference backend: Piper (VITS-based, ONNX runtime). Single-voice
+model fine-tuned on `voice/audio/*.wav` via piper1-gpl. Runs in
+real time on CPU.
 
-Model and voice are loaded once; each call is a single ONNX inference,
-so latency is sub-second for a typical sentence on Apple Silicon CPU.
+Expects the trained artifacts next to this file:
+    voice/hal.onnx         ONNX weights
+    voice/hal.onnx.json    voice config produced by Piper
+
+If those files are absent, every `synthesize*` call raises; the
+server-side wrapper (server/tts.py) catches and falls back to
+macOS `say` automatically.
 
 Public API (drop-in for server/tts.py):
     synthesize(text) -> (numpy_array_f32, sample_rate)
     synthesize_wav_bytes(text) -> bytes
     synthesize_wav_base64(text) -> str
-
-The model + voices files (~340 MB combined) are downloaded once on
-first load if missing, into this directory.
 """
 
 from __future__ import annotations
 
 import base64
 import io
-import os
-import urllib.request
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 
-VOICE = "am_adam"  # deep American male — deliberate, grave, close to HAL's delivery
-LANG = "en-us"
 VOICE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = VOICE_DIR / "kokoro-v1.0.onnx"
-VOICES_PATH = VOICE_DIR / "voices-v1.0.bin"
+MODEL_PATH = VOICE_DIR / "hal.onnx"
+CONFIG_PATH = VOICE_DIR / "hal.onnx.json"
 
-_MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
-_VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
-
-_kokoro = None
+_voice = None
 
 
-def _ensure_files() -> None:
-    for path, url in ((MODEL_PATH, _MODEL_URL), (VOICES_PATH, _VOICES_URL)):
-        if path.exists() and path.stat().st_size > 1_000_000:
-            continue
-        print(f"[hal_tts] downloading {url} -> {path.name}")
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        urllib.request.urlretrieve(url, tmp)
-        os.replace(tmp, path)
-
-
-def _ensure_model():
-    global _kokoro
-    if _kokoro is not None:
+def _ensure_voice():
+    global _voice
+    if _voice is not None:
         return
-    from kokoro_onnx import Kokoro  # heavy import
-
-    _ensure_files()
-    print(f"[hal_tts] Loading Kokoro (voice={VOICE}, lang={LANG})...")
-    _kokoro = Kokoro(str(MODEL_PATH), str(VOICES_PATH))
-    # Pre-warm with a cheap call so the first real request is fast.
-    _kokoro.create("hello", voice=VOICE, speed=1.0, lang=LANG)
-    print("[hal_tts] Pipeline ready.")
+    if not MODEL_PATH.exists() or not CONFIG_PATH.exists():
+        raise RuntimeError(
+            f"Piper HAL model not found. Expected {MODEL_PATH.name} and "
+            f"{CONFIG_PATH.name} in {VOICE_DIR}. Train one with the "
+            "instructions in voice/README.md."
+        )
+    from piper import PiperVoice  # type: ignore
+    print(f"[hal_tts] Loading Piper voice from {MODEL_PATH.name}...")
+    _voice = PiperVoice.load(str(MODEL_PATH), config_path=str(CONFIG_PATH))
+    print("[hal_tts] Voice ready.")
 
 
 def synthesize(text: str) -> tuple[np.ndarray, int]:
-    """Generate speech as HAL. Returns (numpy_array_f32, sample_rate)."""
-    _ensure_model()
-    assert _kokoro is not None
-    samples, sr = _kokoro.create(text, voice=VOICE, speed=1.0, lang=LANG)
-    return np.asarray(samples, dtype=np.float32), int(sr)
+    """Generate speech as HAL. Returns (float32 numpy array, sample rate)."""
+    _ensure_voice()
+    assert _voice is not None
+    # PiperVoice.synthesize_stream_raw yields int16 PCM chunks.
+    pcm_chunks = list(_voice.synthesize_stream_raw(text))
+    if not pcm_chunks:
+        return np.zeros(0, dtype=np.float32), _voice.config.sample_rate
+    pcm = b"".join(pcm_chunks)
+    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    return samples, _voice.config.sample_rate
 
 
 def synthesize_wav_bytes(text: str) -> bytes:

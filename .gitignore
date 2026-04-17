@@ -6,7 +6,9 @@ weights/
 server/.venv/
 server/corpus/*.bin
 voice/.venv/
-voice/kokoro-v1.0.onnx
-voice/voices-v1.0.bin
+voice/ljspeech/
+voice/piper_cache/
+voice/hal.onnx
+voice/hal.onnx.json
 **/__pycache__/
 **/.DS_Store
