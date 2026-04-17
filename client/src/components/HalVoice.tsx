@@ -53,14 +53,14 @@ type Target = {
 const CANVAS_PX = 340;
 const EYE_R = 44;
 const BLACK_R = 70;
-const RING_R = 85;
-const RING_AMP_REC = 28;
-const RING_AMP_SPK = 42;
+const RING_R = 95;
+const RING_AMP_REC = 30;
+const RING_AMP_SPK = 45;
 
 const PHASE_TARGET: Record<Phase, Target> = {
-  idle:      { ringR: 0,        ringAmp: 0,            ringAlpha: 0, eyeR: 0,     eyePulse: 0 },
+  idle:      { ringR: RING_R,   ringAmp: 0,            ringAlpha: 0, eyeR: 0,     eyePulse: 0 },
   recording: { ringR: RING_R,   ringAmp: RING_AMP_REC, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0 },
-  thinking:  { ringR: BLACK_R,  ringAmp: 0,            ringAlpha: 0, eyeR: EYE_R, eyePulse: 0.18 },
+  thinking:  { ringR: RING_R,   ringAmp: 0,            ringAlpha: 0, eyeR: EYE_R, eyePulse: 0.18 },
   speaking:  { ringR: RING_R,   ringAmp: RING_AMP_SPK, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0 },
 };
 
