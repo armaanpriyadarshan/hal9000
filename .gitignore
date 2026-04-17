@@ -2,12 +2,9 @@ node_modules/
 .next/
 cactus/
 .playwright-mcp/
-hal9000-*.png
 weights/
 server/.venv/
 server/corpus/*.bin
-server/corpus_raw/
-voice/venv/
 voice/.venv/
 voice/kokoro-v1.0.onnx
 voice/voices-v1.0.bin

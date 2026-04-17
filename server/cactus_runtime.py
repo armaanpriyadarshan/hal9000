@@ -4,13 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cactus import (
-    cactus_complete,
-    cactus_destroy,
-    cactus_init,
-    cactus_reset,
-    cactus_transcribe,
-)
+from cactus import cactus_complete, cactus_destroy, cactus_init, cactus_reset
 
 from config import WEIGHTS_ROOT
 
@@ -65,41 +59,6 @@ class CactusSession:
 
     def reset(self) -> None:
         cactus_reset(self.handle)
-
-    def close(self) -> None:
-        if self.handle:
-            cactus_destroy(self.handle)
-            self.handle = 0
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.close()
-
-
-class Transcriber:
-    """Loads a transcription model (Parakeet/Whisper) once and transcribes
-    raw PCM buffers to text. Used to get a text handle on the user's
-    utterance so we can query RAG with it."""
-
-    def __init__(self, model_name: str):
-        self.weights = resolve_weights(model_name)
-        self.handle = cactus_init(str(self.weights), None, False)
-
-    def transcribe(self, pcm_data: bytes) -> str:
-        if not pcm_data:
-            return ""
-        raw = cactus_transcribe(self.handle, None, None, None, None, pcm_data)
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return ""
-        segments = parsed.get("segments") or []
-        text = " ".join(
-            s.get("text", "") for s in segments if isinstance(s, dict) and s.get("text")
-        )
-        return text.strip()
 
     def close(self) -> None:
         if self.handle:

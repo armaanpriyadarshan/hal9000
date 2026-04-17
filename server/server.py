@@ -1,26 +1,25 @@
 """HTTP bridge for the Next.js client.
 
 Endpoints:
-- GET  /api/health      -> {"status": "ok", "model": LLM_MODEL}
-- POST /api/text        -> {"reply": "...", "thinking": "..."}     (body: {"text": "..."})
-- POST /api/voice       -> {"reply": "...", "thinking": "..."}     (body: raw int16 LE
-                                                                    16 kHz mono PCM)
-- POST /api/reset       -> {"ok": true}                            (clears conversation)
+- GET  /api/health      -> {"status": "ok", "chat_model": ..., "embed_model": ...}
+- POST /api/text        -> {"reply": "...", "thinking": "...", "audio": "..."}
+                            (body: {"text": "..."})
+- POST /api/voice       -> {"reply": "...", "thinking": "...", "audio": "..."}
+                            (body: raw int16 LE 16 kHz mono PCM)
+- POST /api/reset       -> {"ok": true}
 
-Gemma 4 E2B is loaded once at startup for chat. A second model
-(Qwen3-Embedding-0.6B) owns the RAG index — its embedding space is
-purpose-built for retrieval and performs far better than using
-Gemma's own embeddings. A third model (Parakeet) transcribes the
-mic so voice turns can also hit RAG. Retrieved chunks are injected
-into Gemma's system prompt each turn without polluting the stored
-conversation.
+Three local models back the server:
+- Gemma 4 E2B for chat (audio-in handled natively, no separate STT).
+- Qwen3-Embedding-0.6B for RAG retrieval against server/corpus/.
+- Kokoro-82M (ONNX) for TTS; reply audio is returned as a base64 WAV.
 
-Run with:
+Retrieved corpus chunks are injected into the system prompt per turn
+without polluting the stored conversation.
 
+Run:
     server/.venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port 8000
 """
 
-import json
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any
@@ -38,7 +37,6 @@ from config import (
     SYSTEM_PROMPT,
 )
 from rag import EmbedRagIndex, build_context_block
-from tools import TOOL_SCHEMAS, dispatch
 from tts import synth_wav_base64, synth_wav_bytes
 
 
@@ -56,9 +54,8 @@ def reset_conversation() -> None:
 
 
 def messages_with_context(query_text: str) -> list[dict[str, Any]]:
-    """Return a copy of state.messages with the latest RAG context
-    injected into the system message. The stored conversation stays
-    clean so next turn gets fresh retrieval."""
+    """Copy of state.messages with RAG context prepended to the system
+    message for this turn only. State stays clean for next turn."""
     msgs = deepcopy(state.messages)
     if not state.rag or not query_text.strip():
         return msgs
@@ -66,43 +63,19 @@ def messages_with_context(query_text: str) -> list[dict[str, Any]]:
     ctx = build_context_block(chunks)
     if not ctx:
         return msgs
-    if msgs and msgs[0].get("role") == "system":
-        msgs[0] = {**msgs[0], "content": ctx + msgs[0]["content"]}
-    else:
-        msgs.insert(0, {"role": "system", "content": ctx + SYSTEM_PROMPT})
+    msgs[0] = {**msgs[0], "content": ctx + msgs[0]["content"]}
     return msgs
 
 
 def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     assert state.llm is not None
-    prompt_messages = messages_with_context(query_text)
-
     result = state.llm.complete(
-        prompt_messages,
-        tools=TOOL_SCHEMAS,
+        messages_with_context(query_text),
         pcm_data=pcm_data,
         options=COMPLETION_OPTIONS,
     )
     reply = result.get("response", "") or ""
     thinking = result.get("thinking", "") or ""
-
-    for call in result.get("function_calls") or []:
-        name = call.get("name") or call.get("function", {}).get("name")
-        args_raw = call.get("arguments", "{}")
-        args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
-        tool_output = dispatch(name, args)
-        state.messages.append({"role": "assistant", "content": reply, "tool_calls": [call]})
-        state.messages.append(
-            {"role": "tool", "content": json.dumps({"name": name, "content": tool_output})}
-        )
-        follow_up = state.llm.complete(
-            messages_with_context(query_text),
-            tools=TOOL_SCHEMAS,
-            options=COMPLETION_OPTIONS,
-        )
-        reply = follow_up.get("response", reply) or reply
-        thinking = follow_up.get("thinking", thinking) or thinking
-
     state.messages.append({"role": "assistant", "content": reply})
     return {"reply": reply, "thinking": thinking, "audio": synth_wav_base64(reply)}
 
@@ -156,10 +129,10 @@ def text(body: TextIn):
 @app.post("/api/voice")
 async def voice(request: Request):
     pcm = await request.body()
-    # Gemma 4 handles audio natively; no separate STT step. RAG on voice
-    # turns falls back to the conversation's last assistant text as the
-    # query hint (good enough for continuing a topic; empty on turn 1).
     state.messages.append({"role": "user", "content": ""})
+    # On voice turns we don't have a text query for RAG; use the previous
+    # assistant reply as a topical hint so follow-ups still retrieve
+    # relevant chunks. Empty on the first turn.
     last_text = ""
     for m in reversed(state.messages[:-1]):
         if m.get("role") == "assistant" and isinstance(m.get("content"), str):

@@ -1,5 +1,5 @@
-"""Text-to-speech. Uses voice/hal_tts.py (Qwen3-TTS HAL clone) as the
-primary backend, falls back to macOS `say` if it fails to load."""
+"""Text-to-speech. Primary: voice/hal_tts.py (Kokoro ONNX).
+Fallback: macOS `say` if the Kokoro import fails."""
 
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ _hal_tts = None
 try:
     import hal_tts as _hal_tts  # type: ignore
 except Exception as e:  # noqa: BLE001
-    print(f"[tts] Qwen HAL clone unavailable ({e}); falling back to macOS say.", flush=True)
+    print(f"[tts] Kokoro TTS unavailable ({e}); falling back to macOS say.", flush=True)
 
-FALLBACK_VOICE = "Daniel"
-FALLBACK_SAMPLE_RATE = 22050
+_FALLBACK_VOICE = "Daniel"
+_FALLBACK_SAMPLE_RATE = 22050
 
 
 def _say_bytes(text: str) -> bytes | None:
@@ -33,9 +33,9 @@ def _say_bytes(text: str) -> bytes | None:
         subprocess.run(
             [
                 "say",
-                "-v", FALLBACK_VOICE,
+                "-v", _FALLBACK_VOICE,
                 "--file-format=WAVE",
-                f"--data-format=LEI16@{FALLBACK_SAMPLE_RATE}",
+                f"--data-format=LEI16@{_FALLBACK_SAMPLE_RATE}",
                 "-o", str(path),
                 text,
             ],
@@ -62,9 +62,3 @@ def synth_wav_bytes(text: str) -> bytes | None:
 def synth_wav_base64(text: str) -> str | None:
     data = synth_wav_bytes(text)
     return base64.b64encode(data).decode("ascii") if data else None
-
-
-def speak(text: str) -> None:
-    """Local playback for the CLI (server/main.py)."""
-    if text.strip() and shutil.which("say"):
-        subprocess.run(["say", "-v", FALLBACK_VOICE, text], check=False)

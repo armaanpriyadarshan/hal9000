@@ -212,28 +212,6 @@ export default function HalVoice() {
     phaseRef.current = "idle";
   }, [clearSpeakingTimeout, stopMicStream]);
 
-  // Any first user interaction (click, key, touch) unlocks the mic. After
-  // that, VAD drives the rest — the user never has to hit Space.
-  useEffect(() => {
-    const bootstrap = async () => {
-      if (phaseRef.current !== "idle") return;
-      try {
-        await ensureMicStream();
-        phaseRef.current = "ready";
-      } catch {
-        stopMicStream();
-      }
-    };
-    window.addEventListener("click", bootstrap);
-    window.addEventListener("keydown", bootstrap);
-    window.addEventListener("touchstart", bootstrap);
-    return () => {
-      window.removeEventListener("click", bootstrap);
-      window.removeEventListener("keydown", bootstrap);
-      window.removeEventListener("touchstart", bootstrap);
-    };
-  }, [ensureMicStream, stopMicStream]);
-
   // VAD loop: runs continuously, only acts when phase is ready or recording.
   // In `ready`, triggers startRecording on sustained speech.
   // In `recording`, triggers stopRecording on sustained silence.
