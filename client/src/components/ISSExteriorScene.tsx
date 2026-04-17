@@ -5,20 +5,49 @@ import { OrbitControls, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect } from "react";
 import * as THREE from "three";
 
-const HOLOGRAM_VERSION = "surface-v3";
+const HOLOGRAM_VERSION = "fresnel-v1";
 const HIGH_VERTEX_COUNT = 2000;
 const EDGE_ANGLE_DEG = 20;
+
+const VERTEX_SHADER = `
+  varying vec3 vNormal;
+  varying vec3 vViewPos;
+  void main() {
+    vNormal = normalize(normalMatrix * normal);
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vViewPos = -mvPosition.xyz;
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+const FRAGMENT_SHADER = `
+  uniform vec3 baseColor;
+  uniform vec3 rimColor;
+  uniform float rimPower;
+  varying vec3 vNormal;
+  varying vec3 vViewPos;
+  void main() {
+    vec3 V = normalize(vViewPos);
+    vec3 N = normalize(vNormal);
+    float fresnel = pow(1.0 - max(dot(N, V), 0.0), rimPower);
+    vec3 color = mix(baseColor, rimColor, fresnel);
+    gl_FragColor = vec4(color, 1.0);
+  }
+`;
 
 function HologramModel() {
   const { scene } = useGLTF("/iss-exterior.glb");
 
   useEffect(() => {
-    const surfaceMat = new THREE.MeshBasicMaterial({
-      color: 0x66ccff,
-      transparent: true,
-      opacity: 0.7,
+    const surfaceMat = new THREE.ShaderMaterial({
+      uniforms: {
+        baseColor: { value: new THREE.Color(0x1a4a66) },
+        rimColor: { value: new THREE.Color(0xbbeeff) },
+        rimPower: { value: 2.5 },
+      },
+      vertexShader: VERTEX_SHADER,
+      fragmentShader: FRAGMENT_SHADER,
       side: THREE.FrontSide,
-      depthWrite: true,
     });
     const lineMat = new THREE.LineBasicMaterial({
       color: 0xccf5ff,
