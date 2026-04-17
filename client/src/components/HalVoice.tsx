@@ -184,31 +184,69 @@ export default function HalVoice() {
         ctx.globalAlpha = 1;
       }
 
-      // HAL eye (inner red disc with glow)
+      // HAL eye
       if (s.eyeR > 0.5) {
         const eyeR = s.eyeR * pulse * dpr;
-        const haloR = eyeR * 1.8;
-        // outer halo
-        const halo = ctx.createRadialGradient(cx, cy, eyeR * 0.85, cx, cy, haloR);
-        halo.addColorStop(0, "rgba(255, 70, 30, 0.55)");
-        halo.addColorStop(1, "rgba(255, 40, 10, 0)");
+        const bezelW = 8 * dpr;
+        const bezelR = eyeR + bezelW;
+
+        // Metallic bezel ring
         ctx.shadowBlur = 0;
+        const bezel = ctx.createRadialGradient(cx, cy - bezelR * 0.3, 0, cx, cy, bezelR * 1.1);
+        bezel.addColorStop(0, "rgba(200, 200, 210, 0.9)");
+        bezel.addColorStop(0.3, "rgba(120, 120, 130, 0.85)");
+        bezel.addColorStop(0.6, "rgba(70, 70, 80, 0.8)");
+        bezel.addColorStop(0.85, "rgba(140, 140, 150, 0.85)");
+        bezel.addColorStop(1, "rgba(50, 50, 55, 0.9)");
+        ctx.fillStyle = bezel;
+        ctx.beginPath();
+        ctx.arc(cx, cy, bezelR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Black gap between bezel and eye
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.arc(cx, cy, eyeR + 1 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Red glow halo
+        const haloR = eyeR * 1.6;
+        const halo = ctx.createRadialGradient(cx, cy, eyeR * 0.5, cx, cy, haloR);
+        halo.addColorStop(0, "rgba(200, 20, 0, 0.5)");
+        halo.addColorStop(1, "rgba(200, 20, 0, 0)");
         ctx.fillStyle = halo;
         ctx.beginPath();
         ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
         ctx.fill();
-        // disc
+
+        // Red disc
         const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, eyeR);
-        disc.addColorStop(0, "rgba(255, 230, 180, 1)");
-        disc.addColorStop(0.25, "rgba(255, 140, 70, 1)");
-        disc.addColorStop(0.7, "rgba(210, 35, 10, 1)");
-        disc.addColorStop(1, "rgba(90, 10, 0, 1)");
-        ctx.shadowColor = "rgba(255, 60, 20, 0.95)";
-        ctx.shadowBlur = 36 * dpr;
+        disc.addColorStop(0, "rgba(255, 200, 50, 1)");
+        disc.addColorStop(0.08, "rgba(255, 160, 30, 1)");
+        disc.addColorStop(0.2, "rgba(230, 60, 10, 1)");
+        disc.addColorStop(0.5, "rgba(180, 15, 0, 1)");
+        disc.addColorStop(0.8, "rgba(100, 5, 0, 1)");
+        disc.addColorStop(1, "rgba(30, 0, 0, 1)");
+        ctx.shadowColor = "rgba(255, 40, 10, 0.8)";
+        ctx.shadowBlur = 30 * dpr;
         ctx.fillStyle = disc;
         ctx.beginPath();
         ctx.arc(cx, cy, eyeR, 0, Math.PI * 2);
         ctx.fill();
+
+        // Bright center dot
+        ctx.shadowBlur = 12 * dpr;
+        ctx.shadowColor = "rgba(255, 220, 80, 0.9)";
+        const dotR = 4 * dpr;
+        const dot = ctx.createRadialGradient(cx, cy, 0, cx, cy, dotR);
+        dot.addColorStop(0, "rgba(255, 255, 200, 1)");
+        dot.addColorStop(0.5, "rgba(255, 200, 50, 0.8)");
+        dot.addColorStop(1, "rgba(255, 160, 30, 0)");
+        ctx.fillStyle = dot;
+        ctx.beginPath();
+        ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
       }
 
       raf = requestAnimationFrame(draw);
