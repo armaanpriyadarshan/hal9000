@@ -4,7 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Phase = "idle" | "recording" | "thinking" | "speaking";
 
-const SERVER = process.env.NEXT_PUBLIC_HAL_SERVER ?? "http://localhost:8000";
+function defaultServer() {
+  if (typeof window === "undefined") return "http://localhost:8000";
+  return `${window.location.protocol}//${window.location.hostname}:8000`;
+}
+const SERVER = process.env.NEXT_PUBLIC_HAL_SERVER ?? defaultServer();
 const TARGET_SAMPLE_RATE = 16_000;
 
 async function blobToInt16Pcm(blob: Blob): Promise<ArrayBuffer> {
