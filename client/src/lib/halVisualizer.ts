@@ -12,6 +12,7 @@ type Target = {
 
 export const CANVAS_PX = 340;
 const EYE_R = 44;
+const BLACK_R = 70;
 const RING_R = 70;
 const RING_AMP_REC = 28;
 const RING_AMP_SPK = 42;
@@ -99,23 +100,35 @@ export function attachVisualizer({ canvas, phaseRef, analyserRef }: VisualizerRe
 
   const drawEye = (cx: number, cy: number, pulse: number) => {
     const eyeR = s.eyeR * pulse * dpr;
-    const glowR = eyeR * 1.8;
+    const blackR = eyeR * (BLACK_R / EYE_R);
+    const fadeR = blackR * 1.3;
 
-    // Red glow — bright center fading to transparent, no solid bg
-    const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+    // Black surround — soft feathered edge, scales with eye
+    ctx.shadowBlur = 0;
+    const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, fadeR);
+    bg.addColorStop(0, "rgba(0, 0, 0, 1)");
+    bg.addColorStop(0.7, "rgba(0, 0, 0, 1)");
+    bg.addColorStop(0.85, "rgba(0, 0, 0, 0.6)");
+    bg.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.arc(cx, cy, fadeR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Red glow
+    const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, eyeR);
     disc.addColorStop(0, "rgba(255, 200, 50, 1)");
-    disc.addColorStop(0.03, "rgba(255, 160, 30, 1)");
-    disc.addColorStop(0.08, "rgba(230, 60, 10, 1)");
-    disc.addColorStop(0.18, "rgba(180, 15, 0, 1)");
-    disc.addColorStop(0.35, "rgba(120, 8, 0, 0.85)");
-    disc.addColorStop(0.5, "rgba(60, 2, 0, 0.5)");
-    disc.addColorStop(0.7, "rgba(20, 0, 0, 0.15)");
+    disc.addColorStop(0.06, "rgba(255, 160, 30, 1)");
+    disc.addColorStop(0.15, "rgba(230, 60, 10, 1)");
+    disc.addColorStop(0.35, "rgba(180, 15, 0, 1)");
+    disc.addColorStop(0.6, "rgba(80, 5, 0, 0.8)");
+    disc.addColorStop(0.8, "rgba(20, 0, 0, 0.3)");
     disc.addColorStop(1, "rgba(0, 0, 0, 0)");
     ctx.shadowColor = "rgba(255, 40, 10, 0.6)";
     ctx.shadowBlur = 25 * dpr;
     ctx.fillStyle = disc;
     ctx.beginPath();
-    ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, eyeR, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
 
