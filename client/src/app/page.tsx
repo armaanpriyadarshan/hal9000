@@ -1,7 +1,6 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
 
 const ISSInteriorScene = dynamic(() => import("@/components/ISSInteriorScene"), { ssr: false });
 
@@ -9,12 +8,6 @@ export default function Home() {
   return (
     <div className="h-screen w-screen relative">
       <ISSInteriorScene />
-      <Link
-        href="/exterior"
-        className="absolute top-4 right-4 z-10 px-4 py-2 font-mono text-sm text-white bg-black/50 border border-white/80 hover:bg-black/70"
-      >
-        View Exterior
-      </Link>
     </div>
   );
 }
