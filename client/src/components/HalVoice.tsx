@@ -4,11 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Phase = "idle" | "recording" | "thinking" | "speaking";
 
-function defaultServer() {
-  if (typeof window === "undefined") return "http://localhost:8000";
-  return `${window.location.protocol}//${window.location.hostname}:8000`;
-}
-const SERVER = process.env.NEXT_PUBLIC_HAL_SERVER ?? defaultServer();
+const SERVER = "http://10.21.80.88:3000";
 const TARGET_SAMPLE_RATE = 16_000;
 
 async function blobToInt16Pcm(blob: Blob): Promise<ArrayBuffer> {
@@ -102,9 +98,9 @@ export default function HalVoice() {
     resize();
     window.addEventListener("resize", resize);
 
-    const NUM_BARS = 64;
-    const freqBuf = new Uint8Array(256);
-    const smoothed = new Float32Array(NUM_BARS);
+    const WAVE_POINTS = 128;
+    const timeBuf = new Uint8Array(1024);
+    const smoothed = new Float32Array(WAVE_POINTS);
     const s = { ringR: 0, ringAmp: 0, ringAlpha: 0, eyeR: 0, eyePulse: 0 };
     let pulsePhase = 0;
     let lastT = performance.now();
@@ -138,62 +134,53 @@ export default function HalVoice() {
       const cx = w / 2;
       const cy = h / 2;
 
-      // Circular equalizer
+      // Circular waveform
       if (s.ringAlpha > 0.01 && s.ringR > 0.5) {
         const live = analyserRef.current;
         const ph = phaseRef.current;
         let haveAudio = false;
         if (live && (ph === "recording" || ph === "speaking")) {
-          live.getByteFrequencyData(freqBuf);
+          live.getByteTimeDomainData(timeBuf);
           haveAudio = true;
         }
 
-        const halfBars = NUM_BARS / 2;
-        // Speech energy lives in the bottom quarter of the spectrum — only
-        // sample those bins so bars actually move instead of flatlining.
-        const usableBins = Math.min(freqBuf.length, 96);
-        const binsPerBar = Math.max(1, Math.floor(usableBins / halfBars));
-
-        for (let i = 0; i < NUM_BARS; i++) {
-          // Mirror the bottom half around the vertical axis for symmetry.
-          const idx = i < halfBars ? i : NUM_BARS - 1 - i;
-          let sum = 0;
+        const samplesPerPoint = Math.max(1, Math.floor(timeBuf.length / WAVE_POINTS));
+        for (let i = 0; i < WAVE_POINTS; i++) {
+          let val = 0;
           if (haveAudio) {
-            const base = idx * binsPerBar;
-            for (let j = 0; j < binsPerBar; j++) sum += freqBuf[base + j] || 0;
-            sum /= binsPerBar;
+            const base = i * samplesPerPoint;
+            let peak = 0;
+            for (let j = 0; j < samplesPerPoint; j++) {
+              const v = Math.abs((timeBuf[base + j] || 128) - 128) / 128;
+              if (v > peak) peak = v;
+            }
+            val = peak;
           }
-          const raw = sum / 255;
-          const boosted = Math.pow(raw, 0.6);
-          smoothed[i] = smoothed[i] * 0.45 + boosted * 0.55;
+          smoothed[i] = smoothed[i] * 0.3 + val * 0.7;
         }
 
-        const innerR = s.ringR * dpr;
-        const barWidth = Math.max(2 * dpr, (2 * Math.PI * innerR) / NUM_BARS * 0.55);
+        const baseR = s.ringR * dpr;
+        const ampPx = s.ringAmp * 1.8 * dpr;
+
         ctx.globalAlpha = s.ringAlpha;
-        ctx.lineCap = "round";
-        ctx.lineWidth = barWidth;
+        ctx.lineWidth = 2.5 * dpr;
         ctx.strokeStyle = "rgba(255, 120, 80, 1)";
         ctx.shadowColor = "rgba(255, 70, 30, 0.95)";
-        ctx.shadowBlur = 22 * dpr;
+        ctx.shadowBlur = 18 * dpr;
+        ctx.beginPath();
 
-        const baselineLen = 4 * dpr;
-        const ampPx = s.ringAmp * 1.6 * dpr;
-
-        for (let i = 0; i < NUM_BARS; i++) {
-          const len = baselineLen + smoothed[i] * ampPx;
-          const a = (i / NUM_BARS) * Math.PI * 2 - Math.PI / 2;
-          const ca = Math.cos(a);
-          const sa = Math.sin(a);
-          const x1 = cx + ca * innerR;
-          const y1 = cy + sa * innerR;
-          const x2 = cx + ca * (innerR + len);
-          const y2 = cy + sa * (innerR + len);
-          ctx.beginPath();
-          ctx.moveTo(x1, y1);
-          ctx.lineTo(x2, y2);
-          ctx.stroke();
+        for (let i = 0; i <= WAVE_POINTS; i++) {
+          const idx = i % WAVE_POINTS;
+          const a = (idx / WAVE_POINTS) * Math.PI * 2 - Math.PI / 2;
+          const r = baseR + smoothed[idx] * ampPx;
+          const x = cx + Math.cos(a) * r;
+          const y = cy + Math.sin(a) * r;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
         }
+
+        ctx.closePath();
+        ctx.stroke();
         ctx.globalAlpha = 1;
       }
 
@@ -257,8 +244,8 @@ export default function HalVoice() {
       const ac = await getAudioCtx();
       const src = ac.createMediaStreamSource(stream);
       const node = ac.createAnalyser();
-      node.fftSize = 1024;
-      node.smoothingTimeConstant = 0.35;
+      node.fftSize = 2048;
+      node.smoothingTimeConstant = 0.5;
       src.connect(node);
       analyserRef.current = node;
 
