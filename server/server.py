@@ -29,13 +29,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from cactus_runtime import CactusSession, Transcriber
+from cactus_runtime import CactusSession
 from config import (
     COMPLETION_OPTIONS,
     CORPUS_DIR,
     EMBED_MODEL,
     LLM_MODEL,
-    STT_MODEL,
     SYSTEM_PROMPT,
 )
 from rag import EmbedRagIndex, build_context_block
@@ -46,7 +45,6 @@ from tts import synth_wav_base64, synth_wav_bytes
 class AppState:
     llm: CactusSession | None = None
     rag: EmbedRagIndex | None = None
-    stt: Transcriber | None = None
     messages: list[dict[str, Any]] = []
 
 
@@ -115,15 +113,11 @@ async def lifespan(_app: FastAPI):
     state.llm = CactusSession(LLM_MODEL)
     print(f"Loading embed model {EMBED_MODEL} with corpus {CORPUS_DIR}...", flush=True)
     state.rag = EmbedRagIndex(EMBED_MODEL, CORPUS_DIR, cache_index=True)
-    print(f"Loading STT model {STT_MODEL}...", flush=True)
-    state.stt = Transcriber(STT_MODEL)
-    print("Warming HAL TTS (first call loads Qwen3-TTS into RAM)...", flush=True)
+    print("Warming HAL TTS...", flush=True)
     synth_wav_bytes("Initialized.")
     reset_conversation()
     print("All models ready.", flush=True)
     yield
-    if state.stt:
-        state.stt.close()
     if state.rag:
         state.rag.close()
     if state.llm:
@@ -145,7 +139,6 @@ def health():
         "status": "ok",
         "chat_model": LLM_MODEL,
         "embed_model": EMBED_MODEL,
-        "stt_model": STT_MODEL,
         "turn_count": max(0, len(state.messages) - 1),
     }
 
@@ -163,11 +156,16 @@ def text(body: TextIn):
 @app.post("/api/voice")
 async def voice(request: Request):
     pcm = await request.body()
-    # Transcribe so we have a text handle on the user's utterance for RAG.
-    # The raw PCM still goes to Gemma so its native audio understanding is preserved.
-    transcript = state.stt.transcribe(pcm) if state.stt else ""
-    state.messages.append({"role": "user", "content": transcript or ""})
-    return run_turn(query_text=transcript, pcm_data=pcm)
+    # Gemma 4 handles audio natively; no separate STT step. RAG on voice
+    # turns falls back to the conversation's last assistant text as the
+    # query hint (good enough for continuing a topic; empty on turn 1).
+    state.messages.append({"role": "user", "content": ""})
+    last_text = ""
+    for m in reversed(state.messages[:-1]):
+        if m.get("role") == "assistant" and isinstance(m.get("content"), str):
+            last_text = m["content"]
+            break
+    return run_turn(query_text=last_text, pcm_data=pcm)
 
 
 @app.post("/api/reset")
