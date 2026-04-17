@@ -42,19 +42,36 @@ function base64ToArrayBuffer(b64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-type TargetParams = { r: number; amp: number; pulse: number };
+type Target = {
+  ringR: number;
+  ringAmp: number;
+  ringAlpha: number;
+  eyeR: number;
+  eyePulse: number;
+};
 
-const PHASE_TARGETS: Record<Phase, (scale: number) => TargetParams> = {
-  idle: () => ({ r: 0, amp: 0, pulse: 0 }),
-  recording: (s) => ({ r: 170 * s, amp: 36 * s, pulse: 0 }),
-  thinking: (s) => ({ r: 14 * s, amp: 0, pulse: 0.35 }),
-  speaking: (s) => ({ r: 150 * s, amp: 52 * s, pulse: 0 }),
+const CANVAS_PX = 340;
+const EYE_R = 44;
+const RING_R = 105;
+const RING_AMP_REC = 28;
+const RING_AMP_SPK = 42;
+
+const PHASE_TARGET: Record<Phase, Target> = {
+  idle:      { ringR: 0,      ringAmp: 0,           ringAlpha: 0, eyeR: 0,     eyePulse: 0 },
+  recording: { ringR: RING_R, ringAmp: RING_AMP_REC, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0 },
+  thinking:  { ringR: EYE_R,  ringAmp: 0,           ringAlpha: 0, eyeR: EYE_R, eyePulse: 0.18 },
+  speaking:  { ringR: RING_R, ringAmp: RING_AMP_SPK, ringAlpha: 1, eyeR: EYE_R, eyePulse: 0 },
 };
 
 export default function HalVoice() {
-  const [phase, setPhase] = useState<Phase>("idle");
+  const [, setPhase] = useState<Phase>("idle");
 
   const phaseRef = useRef<Phase>("idle");
+  const setPhaseBoth = (p: Phase) => {
+    phaseRef.current = p;
+    setPhase(p);
+  };
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
 
@@ -64,11 +81,6 @@ export default function HalVoice() {
   const streamRef = useRef<MediaStream | null>(null);
   const playingSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
-  useEffect(() => {
-    phaseRef.current = phase;
-  }, [phase]);
-
-  // Visualizer render loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -81,12 +93,10 @@ export default function HalVoice() {
       canvas.height = canvas.clientHeight * dpr;
     };
     resize();
-    const onResize = () => resize();
-    window.addEventListener("resize", onResize);
+    window.addEventListener("resize", resize);
 
     const buf = new Uint8Array(256);
-    let currentR = 0;
-    let currentAmp = 0;
+    const s = { ringR: 0, ringAmp: 0, ringAlpha: 0, eyeR: 0, eyePulse: 0 };
     let pulsePhase = 0;
     let lastT = performance.now();
     let raf = 0;
@@ -94,20 +104,24 @@ export default function HalVoice() {
     const draw = (t: number) => {
       const dt = Math.min(0.05, (t - lastT) / 1000);
       lastT = t;
+      const tgt = PHASE_TARGET[phaseRef.current];
 
-      const scale = Math.min(canvas.clientWidth, canvas.clientHeight) / 800;
-      const tgt = PHASE_TARGETS[phaseRef.current](scale);
+      const lerp = (cur: number, to: number, k: number) =>
+        cur + (to - cur) * Math.min(1, dt * k);
+      s.ringR     = lerp(s.ringR,     tgt.ringR,     8);
+      s.ringAmp   = lerp(s.ringAmp,   tgt.ringAmp,   7);
+      s.ringAlpha = lerp(s.ringAlpha, tgt.ringAlpha, 9);
+      s.eyeR      = lerp(s.eyeR,      tgt.eyeR,      10);
+      s.eyePulse  = lerp(s.eyePulse,  tgt.eyePulse,  6);
 
-      currentR += (tgt.r - currentR) * Math.min(1, dt * 9);
-      currentAmp += (tgt.amp - currentAmp) * Math.min(1, dt * 7);
-      pulsePhase += dt * 4.2; // ~1.5 s period
-      const pulseScale = 1 + Math.sin(pulsePhase) * tgt.pulse;
+      pulsePhase += dt * 4.2;
+      const pulse = 1 + Math.sin(pulsePhase) * s.eyePulse;
 
       const w = canvas.width;
       const h = canvas.height;
       ctx.clearRect(0, 0, w, h);
 
-      if (currentR < 1 && currentAmp < 0.5) {
+      if (s.eyeR < 0.6 && s.ringAlpha < 0.01) {
         raf = requestAnimationFrame(draw);
         return;
       }
@@ -115,47 +129,62 @@ export default function HalVoice() {
       const cx = w / 2;
       const cy = h / 2;
 
-      let haveAudio = false;
-      const live = analyserRef.current;
-      const ph = phaseRef.current;
-      if (live && (ph === "recording" || ph === "speaking")) {
-        live.getByteTimeDomainData(buf);
-        haveAudio = true;
+      // Waveform ring (outer)
+      if (s.ringAlpha > 0.01 && s.ringR > 0.5) {
+        let haveAudio = false;
+        const live = analyserRef.current;
+        const ph = phaseRef.current;
+        if (live && (ph === "recording" || ph === "speaking")) {
+          live.getByteTimeDomainData(buf);
+          haveAudio = true;
+        }
+        ctx.globalAlpha = s.ringAlpha;
+        ctx.lineWidth = 2 * dpr;
+        ctx.strokeStyle = "rgba(255, 110, 70, 1)";
+        ctx.shadowColor = "rgba(255, 60, 30, 0.95)";
+        ctx.shadowBlur = 28 * dpr;
+        ctx.beginPath();
+        const N = buf.length;
+        for (let i = 0; i <= N; i++) {
+          const idx = i % N;
+          const v = haveAudio ? (buf[idx] - 128) / 128 : 0;
+          const r = (s.ringR + v * s.ringAmp) * dpr;
+          const a = (i / N) * Math.PI * 2 - Math.PI / 2;
+          const x = cx + Math.cos(a) * r;
+          const y = cy + Math.sin(a) * r;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
       }
 
-      const rBase = currentR * pulseScale * dpr;
-      const ampPx = currentAmp * dpr;
-
-      // Outer ring
-      ctx.lineWidth = 2 * dpr;
-      ctx.strokeStyle = "rgba(255, 95, 55, 0.95)";
-      ctx.shadowColor = "rgba(255, 60, 30, 0.85)";
-      ctx.shadowBlur = 42 * dpr;
-      ctx.beginPath();
-      const N = buf.length;
-      for (let i = 0; i <= N; i++) {
-        const idx = i % N;
-        const s = haveAudio ? (buf[idx] - 128) / 128 : 0;
-        const r = rBase + s * ampPx;
-        const a = (i / N) * Math.PI * 2 - Math.PI / 2;
-        const x = cx + Math.cos(a) * r;
-        const y = cy + Math.sin(a) * r;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+      // HAL eye (inner red disc with glow)
+      if (s.eyeR > 0.5) {
+        const eyeR = s.eyeR * pulse * dpr;
+        const haloR = eyeR * 1.8;
+        // outer halo
+        const halo = ctx.createRadialGradient(cx, cy, eyeR * 0.85, cx, cy, haloR);
+        halo.addColorStop(0, "rgba(255, 70, 30, 0.55)");
+        halo.addColorStop(1, "rgba(255, 40, 10, 0)");
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+        ctx.fill();
+        // disc
+        const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, eyeR);
+        disc.addColorStop(0, "rgba(255, 230, 180, 1)");
+        disc.addColorStop(0.25, "rgba(255, 140, 70, 1)");
+        disc.addColorStop(0.7, "rgba(210, 35, 10, 1)");
+        disc.addColorStop(1, "rgba(90, 10, 0, 1)");
+        ctx.shadowColor = "rgba(255, 60, 20, 0.95)";
+        ctx.shadowBlur = 36 * dpr;
+        ctx.fillStyle = disc;
+        ctx.beginPath();
+        ctx.arc(cx, cy, eyeR, 0, Math.PI * 2);
+        ctx.fill();
       }
-      ctx.stroke();
-
-      // Inner glow disc
-      const innerR = Math.max(2 * dpr, Math.min(rBase * 0.25, 18 * dpr)) * pulseScale;
-      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, innerR);
-      grad.addColorStop(0, "rgba(255, 160, 110, 0.95)");
-      grad.addColorStop(0.4, "rgba(255, 90, 50, 0.55)");
-      grad.addColorStop(1, "rgba(255, 60, 30, 0)");
-      ctx.shadowBlur = 28 * dpr;
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
-      ctx.fill();
 
       raf = requestAnimationFrame(draw);
     };
@@ -163,7 +192,7 @@ export default function HalVoice() {
     raf = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener("resize", onResize);
+      window.removeEventListener("resize", resize);
     };
   }, []);
 
@@ -200,7 +229,7 @@ export default function HalVoice() {
       rec.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
         stopInputStream();
-        setPhase("thinking");
+        setPhaseBoth("thinking");
         try {
           const pcm = await blobToInt16Pcm(blob);
           const res = await fetch(`${SERVER}/api/voice`, {
@@ -212,7 +241,7 @@ export default function HalVoice() {
           const json = await res.json();
           const audioB64 = json.audio as string | undefined;
           if (!audioB64) {
-            setPhase("idle");
+            setPhaseBoth("idle");
             return;
           }
           const ac2 = await getAudioCtx();
@@ -228,21 +257,21 @@ export default function HalVoice() {
           src2.onended = () => {
             analyserRef.current = null;
             playingSourceRef.current = null;
-            setPhase("idle");
+            setPhaseBoth("idle");
           };
-          setPhase("speaking");
+          setPhaseBoth("speaking");
           src2.start();
         } catch {
           stopInputStream();
-          setPhase("idle");
+          setPhaseBoth("idle");
         }
       };
       recorderRef.current = rec;
       rec.start();
-      setPhase("recording");
+      setPhaseBoth("recording");
     } catch {
       stopInputStream();
-      setPhase("idle");
+      setPhaseBoth("idle");
     }
   }, [getAudioCtx, stopInputStream]);
 
@@ -282,10 +311,12 @@ export default function HalVoice() {
   }, []);
 
   return (
-    <canvas
-      ref={canvasRef}
+    <div
       aria-hidden
-      className="pointer-events-none fixed inset-0 z-10 w-full h-full"
-    />
+      className="pointer-events-none fixed left-1/2 bottom-10 z-10 -translate-x-1/2"
+      style={{ width: CANVAS_PX, height: CANVAS_PX }}
+    >
+      <canvas ref={canvasRef} className="w-full h-full" />
+    </div>
   );
 }
