@@ -2,55 +2,50 @@
 
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
-import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { Suspense, useEffect } from "react";
 import * as THREE from "three";
+
+const HOLOGRAM_VERSION = "surface-v1";
+const HIGH_VERTEX_COUNT = 2000;
 
 function HologramModel() {
   const { scene } = useGLTF("/iss-exterior.glb");
 
   useEffect(() => {
-    const HIGH_VERTEX_COUNT = 2000;
+    const surfaceMat = new THREE.MeshBasicMaterial({
+      color: 0x66ccff,
+      transparent: true,
+      opacity: 0.12,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
     const lineMat = new THREE.LineBasicMaterial({
-      color: 0x00ffff,
+      color: 0xaaeeff,
       transparent: true,
       opacity: 0.9,
     });
-    const hiddenMat = new THREE.MeshBasicMaterial({ visible: false });
-    const meshes: THREE.Mesh[] = [];
     scene.traverse((child) => {
-      if (child instanceof THREE.Mesh) meshes.push(child);
-    });
-    for (const mesh of meshes) {
-      if (mesh.userData.hologramProcessed) continue;
-      const geom = mesh.geometry;
-      const vertexCount = geom.attributes.position?.count ?? 0;
-      let edgeGeom: THREE.BufferGeometry;
-      if (vertexCount > HIGH_VERTEX_COUNT) {
-        geom.computeBoundingBox();
-        const bb = geom.boundingBox!;
-        const box = new THREE.BoxGeometry(
-          bb.max.x - bb.min.x,
-          bb.max.y - bb.min.y,
-          bb.max.z - bb.min.z,
-        );
-        box.translate(
-          (bb.max.x + bb.min.x) / 2,
-          (bb.max.y + bb.min.y) / 2,
-          (bb.max.z + bb.min.z) / 2,
-        );
-        edgeGeom = new THREE.EdgesGeometry(box);
-        box.dispose();
-      } else {
-        edgeGeom = new THREE.EdgesGeometry(geom, 15);
+      if (!(child instanceof THREE.Mesh)) return;
+      const stale: THREE.Object3D[] = [];
+      for (const c of child.children) {
+        if (c instanceof THREE.LineSegments) {
+          c.geometry.dispose();
+          stale.push(c);
+        }
       }
-      const line = new THREE.LineSegments(edgeGeom, lineMat);
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      mats.forEach((mat) => mat.dispose());
-      mesh.material = hiddenMat;
-      mesh.add(line);
-      mesh.userData.hologramProcessed = true;
-    }
+      stale.forEach((c) => child.remove(c));
+      if (child.userData.hologramVersion === HOLOGRAM_VERSION) return;
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      mats.forEach((m) => m.dispose());
+      child.material = surfaceMat;
+      const count = child.geometry.attributes.position?.count ?? 0;
+      if (count <= HIGH_VERTEX_COUNT) {
+        const edges = new THREE.EdgesGeometry(child.geometry, 30);
+        child.add(new THREE.LineSegments(edges, lineMat));
+      }
+      child.userData.hologramVersion = HOLOGRAM_VERSION;
+    });
   }, [scene]);
 
   return <primitive object={scene} />;
@@ -63,9 +58,6 @@ export default function ISSExteriorScene() {
       <Suspense fallback={null}>
         <HologramModel />
       </Suspense>
-      <EffectComposer>
-        <Bloom intensity={0.5} luminanceThreshold={0.3} mipmapBlur />
-      </EffectComposer>
       <OrbitControls enableZoom enableDamping />
     </Canvas>
   );
