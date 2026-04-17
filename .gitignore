@@ -6,4 +6,5 @@ hal9000-*.png
 weights/
 server/.venv/
 server/corpus/*.bin
+server/corpus_raw/
 **/__pycache__/
