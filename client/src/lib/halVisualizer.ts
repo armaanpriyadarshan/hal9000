@@ -11,7 +11,7 @@ type Target = {
 };
 
 export const CANVAS_PX = 340;
-const EYE_R = 44;
+const EYE_R = 58;
 const BLACK_R = 70;
 const RING_R = 70;
 const RING_AMP_REC = 28;
