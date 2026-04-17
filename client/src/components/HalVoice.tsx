@@ -194,12 +194,6 @@ export default function HalVoice() {
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col items-center gap-3 p-6 font-mono text-sm text-white">
-      {phase === "idle" && !reply && (
-        <div className="bg-black/40 border border-white/25 px-3 py-1.5 text-xs opacity-80">
-          Press <kbd className="px-1 border border-white/40">Enter</kbd> to speak to HAL
-        </div>
-      )}
-
       {phase === "recording" && analyser && (
         <div className="pointer-events-auto flex flex-col items-center gap-2">
           <Waveform analyser={analyser} />
