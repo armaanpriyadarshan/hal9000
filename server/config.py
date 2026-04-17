@@ -21,6 +21,6 @@ SYSTEM_PROMPT = (
 MAX_RECORDING_SECONDS = 20
 
 COMPLETION_OPTIONS = {
-    "max_tokens": 600,
+    "max_tokens": 1500,
     "enable_thinking_if_supported": True,
 }
