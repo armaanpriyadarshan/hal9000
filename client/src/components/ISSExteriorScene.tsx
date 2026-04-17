@@ -44,11 +44,11 @@ function HologramModel() {
   useEffect(() => {
     const surfaceMat = new THREE.ShaderMaterial({
       uniforms: {
-        baseColor: { value: new THREE.Color(0x6cc8ff) },
-        rimColor: { value: new THREE.Color(0xe6f7ff) },
+        baseColor: { value: new THREE.Color(0x7fa8c2) },
+        rimColor: { value: new THREE.Color(0xd4e4ee) },
         rimPower: { value: 2.5 },
-        baseAlpha: { value: 0.22 },
-        rimAlpha: { value: 0.95 },
+        baseAlpha: { value: 0.2 },
+        rimAlpha: { value: 0.9 },
       },
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
