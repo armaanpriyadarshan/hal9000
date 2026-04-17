@@ -1,4 +1,4 @@
-# HAL 9000 Agent
+# HAL 9000 Server
 
 On-device voice agent. Mic → Gemma 4 E2B (Cactus FFI, audio-in) → macOS `say`.
 
@@ -29,7 +29,7 @@ sed -i '' 's/is_vlm = '"'"'vl'"'"' in model_name.lower/model_name = model_id\n  
   /opt/homebrew/Cellar/cactus/*/libexec/python/src/cli.py
 
 # 4. Create a venv layered over Homebrew's python 3.14 so it sees the cactus module
-cd agent
+cd server
 /opt/homebrew/bin/python3.14 -m venv .venv --system-site-packages
 .venv/bin/pip install -r requirements.txt huggingface_hub
 
@@ -48,7 +48,7 @@ to INT4). Coffee break.
 ## Run
 
 ```bash
-agent/.venv/bin/python agent/main.py
+server/.venv/bin/python server/main.py
 ```
 
 Each turn:
