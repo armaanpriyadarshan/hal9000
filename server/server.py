@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from cactus_runtime import CactusSession
 from config import COMPLETION_OPTIONS, LLM_MODEL, SYSTEM_PROMPT
 from tools import TOOL_SCHEMAS, dispatch
+from tts import synth_wav_base64
 
 
 class AppState:
@@ -65,7 +66,7 @@ def run_turn(pcm_data: bytes | None = None) -> dict[str, Any]:
         thinking = follow_up.get("thinking", thinking) or thinking
 
     state.messages.append({"role": "assistant", "content": reply})
-    return {"reply": reply, "thinking": thinking}
+    return {"reply": reply, "thinking": thinking, "audio": synth_wav_base64(reply)}
 
 
 @asynccontextmanager
