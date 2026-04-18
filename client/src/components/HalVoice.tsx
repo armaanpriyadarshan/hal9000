@@ -271,7 +271,7 @@ export default function HalVoice() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none fixed left-1/2 bottom-10 z-10 -translate-x-1/2"
+      className="pointer-events-none fixed left-1/2 bottom-0 z-10 -translate-x-1/2"
       style={{ width: CANVAS_PX, height: CANVAS_PX }}
     >
       <canvas ref={canvasRef} className="w-full h-full" />
