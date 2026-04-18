@@ -44,7 +44,7 @@ from tools import cactus_tools_json, dispatch
 from tts import synth_wav_base64, synth_wav_bytes
 
 
-_CHANNEL_MARKER_RE = re.compile(r"<\|channel\|?>[^\n]*\n")
+_CHANNEL_MARKER_RE = re.compile(r"<\|channel\|?>[^\n]*\n?")
 
 
 def _clean_response(text: str) -> str:
@@ -100,6 +100,8 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     # in cache. Rebuilds from state.messages on the next complete() call.
     state.llm.reset()
     msgs = messages_with_context(query_text)
+    # Intentional per-turn diagnostics — HAL runs headless; these lines
+    # are the only way to see what Gemma did without attaching a debugger.
     print(
         f"[turn {turn_no}] query_text={query_text!r} pcm_bytes={len(pcm_data) if pcm_data else 0} "
         f"history_len={len(msgs)} roles={[m['role'] for m in msgs]}",

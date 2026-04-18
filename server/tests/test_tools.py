@@ -135,3 +135,13 @@ def test_highlight_part_description_covers_every_canonical_name():
     assert spec is not None
     for name in EXPECTED_HIGHLIGHT_PART_ENUM:
         assert name in spec.description, f"canonical name {name!r} missing from description"
+
+
+def test_dispatch_valid_highlight_part_returns_directive_and_ack():
+    calls = [{"name": "highlight_part", "arguments": {"part": "solar_arrays"}}]
+    result = dispatch(calls)
+    assert result.ack_text == "Highlighting the solar_arrays."
+    assert result.client_directives == [
+        {"name": "highlight_part", "arguments": {"part": "solar_arrays"}}
+    ]
+    assert result.failed_calls == []
