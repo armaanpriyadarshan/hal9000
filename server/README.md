@@ -69,26 +69,41 @@ Esc to cancel.
 
 - **LLM main-transformer runs on CPU.** Cactus's Apple-variant zip
   (`gemma-4-e2b-it-int4-apple.zip`) ships
-  `audio_encoder.mlpackage` + `vision_encoder.mlpackage` for ANE, but
-  not the LLM `model.mlpackage`. Cactus logs
+  `audio_encoder.mlpackage` + `vision_encoder.mlpackage` (both
+  pre-compiled to `.mlmodelc` in the same folder, so no runtime Core ML
+  compile), but **not** the LLM `model.mlpackage`. Cactus's publisher
+  (`publish_to_hf.py:56-84`) special-cases Gemma 4 to build only the two
+  encoder packages; the main-transformer path through `cactus-pro` is
+  in a private repo we don't have. Cactus logs
   `[WARN] [npu] [gemma4] model.mlpackage not found; using CPU prefill`
-  at startup. End-to-end voice-turn time on an M2 MacBook Air lands
-  around ~40 s: ~20 s prefill + ~20 s decode with thinking on.
-- **Turn 1 is a full minute or more on fresh boots.** Core ML has to
-  JIT-compile the audio encoder the first time the process runs. The
-  server pays this at startup via a silence-PCM warmup so the client
-  doesn't — watch for `audio warmup Nms` in the uvicorn log. Second
-  boot drops from ~60 s to ~20 s (Core ML `.mlmodelc` is cached).
+  at startup (`model_gemma4.cpp:206`). Post-thinking-off turn times on
+  an M2 MacBook Air: ~5-8 s for a text turn, ~6-10 s for a voice turn
+  (both CPU-bound on prefill; decode is sub-second for short replies).
 - **KV cache resets between voice turns.** Smart prompt caching (which
   would normally let turn N skip re-prefilling the system prompt +
   tool schema) requires us to NOT call `state.llm.reset()`. We tested
-  that: back-to-back voice turns then return empty completions — the
-  old audio-linger bug re-surfaces even on source HEAD (post-v1.14,
-  PR #588 applied). So we keep the reset and pay full prefill per turn
-  until Cactus fixes the voice-cache path.
+  that: back-to-back voice turns then return empty completions because
+  Cactus's audio path (`decode_with_audio` → `decode_multimodal` in
+  `model_gemma4_mm.cpp:252`) skips `do_prefill` entirely and treats
+  second-turn `<|audio|>` placeholder tokens as plain text without
+  re-applying the new `audio_features` tensor. So we keep the reset
+  and pay full prefill per voice turn until Cactus fixes that path.
 - **RAG retrieval quality is moderate.** Qwen3-Embedding gives correct
   top-k ranking for most queries; absolute cosine scores stay low, so
   we rely on top-k ordering alone rather than applying a score floor.
 - **Voice turns don't get the user's transcript into RAG** (we feed raw
   PCM to Gemma). The system uses the last assistant reply as a
-  topical hint for retrieval on follow-up turns.
+  topical hint for retrieval on follow-up turns. Consequences:
+  (a) voice turn 1 retrieves nothing — no prior reply to query on;
+  (b) subsequent voice turns drift with what HAL last said rather
+  than what the crew is currently asking. Cactus's auto-RAG skips
+  retrieval entirely on empty user content (`cactus_complete.cpp:46`
+  — `extract_last_user_query` returns empty → `inject_rag_context`
+  returns early); we chose to inject a topical hint rather than
+  nothing. Revisit when a lightweight STT is wired in.
+- **Cloud fallback is text-turn-only.** `gemini_handoff.py` routes to
+  `generativelanguage.googleapis.com` when local confidence drops,
+  local reply is empty, or every emitted tool call fails schema
+  validation. Voice turns stay fully local — translating PCM to
+  Gemini's audio input format wasn't in this pass. Toggle via
+  `HYBRID_ENABLED` in `.env`.

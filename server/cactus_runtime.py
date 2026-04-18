@@ -53,7 +53,12 @@ class CactusSession:
 
     def __init__(self, model_name: str):
         self.weights = resolve_weights(model_name)
-        self.handle = cactus_init(str(self.weights), None, True)
+        # cache_index=False: the third arg only affects the corpus index
+        # (`cactus_init.cpp:428`), which is gated on a non-null corpus_dir.
+        # We pass corpus_dir=None here — retrieval lives on a separate
+        # embedder handle (see rag.py) — so the flag is a no-op. Kept
+        # explicit to avoid suggesting caching semantics that don't apply.
+        self.handle = cactus_init(str(self.weights), None, False)
 
     def complete(
         self,

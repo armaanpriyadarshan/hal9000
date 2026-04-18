@@ -35,17 +35,22 @@ from cactus_runtime import CactusSession
 
 from config import (
     COMPLETION_OPTIONS,
+    CONFIDENCE_THRESHOLD,
     CORPUS_DIR,
     EMBED_MODEL,
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
+    GEMINI_TIMEOUT_S,
+    HYBRID_ENABLED,
     LLM_MODEL,
     SYSTEM_PROMPT,
 )
+from gemini_handoff import cloud_complete
 from rag import EmbedRagIndex, build_context_block
 from tools import cactus_tools_json, dispatch
 from tts import synth_wav_base64, synth_wav_bytes
 
 
-_CHANNEL_MARKER_RE = re.compile(r"<\|channel\|?>[^\n]*\n?")
 # Matches Gemma's occasional plain-text tool-call format when it fails to
 # emit the <|tool_call_start|>…<|tool_call_end|> tokens Cactus parses:
 #   highlight_part(part="solar_arrays")
@@ -76,24 +81,6 @@ def _parse_inline_tool_call(text: str) -> dict[str, Any] | None:
         )
         args[key] = value
     return {"name": name, "arguments": args}
-
-
-def _clean_response(text: str) -> str:
-    """Strip Gemma 4 channel-marker preambles from `response`.
-
-    Gemma 4's chain-of-thought emits tokens like `<|channel|>thought\\n...`
-    (thinking) followed by `<|channel|>final\\n...` (reply). Cactus is
-    supposed to split these into separate `thinking` and `response` fields,
-    but on some paths the whole thing ends up in `response`. We keep only
-    the text after the LAST channel marker (the final reply), which is
-    empty if the model never produced a non-thinking reply.
-    """
-    if not text:
-        return text
-    markers = list(_CHANNEL_MARKER_RE.finditer(text))
-    if markers:
-        text = text[markers[-1].end():]
-    return text.strip()
 
 
 class AppState:
@@ -160,8 +147,7 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     )
     t_llm_end = time.perf_counter()
 
-    response_text = _clean_response(result.get("response", "") or "")
-    thinking = result.get("thinking", "") or ""
+    response_text = (result.get("response", "") or "").strip()
     function_calls = result.get("function_calls") or []
 
     # Fallback: Gemma occasionally emits tool calls as plain text
@@ -185,7 +171,48 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         flush=True,
     )
 
+    # Local dispatch runs first — it produces the ack text for TTS and
+    # also tells us whether every emitted tool call failed schema
+    # validation (a trigger for cloud handoff).
     dispatched = dispatch(function_calls)
+    source = "local"
+    t_cloud_start: float | None = None
+    t_cloud_end: float | None = None
+
+    # Hybrid handoff — text turns only. Voice turns stay fully local
+    # because the Gemini API path doesn't see the raw audio; translating
+    # would require a separate STT which is out of scope here.
+    if (
+        HYBRID_ENABLED
+        and pcm_data is None
+        and GEMINI_API_KEY
+    ):
+        confidence = result.get("confidence", 1.0)
+        low_confidence = isinstance(confidence, (int, float)) and confidence < CONFIDENCE_THRESHOLD
+        empty_local = not response_text and not function_calls
+        all_tools_failed = bool(function_calls) and len(dispatched.failed_calls) == len(function_calls)
+        if low_confidence or empty_local or all_tools_failed:
+            t_cloud_start = time.perf_counter()
+            cloud = cloud_complete(
+                msgs,
+                api_key=GEMINI_API_KEY,
+                model=GEMINI_MODEL,
+                tools=cactus_tools_json(),
+                local_draft=response_text,
+                timeout_s=GEMINI_TIMEOUT_S,
+            )
+            t_cloud_end = time.perf_counter()
+            if cloud.get("used_cloud"):
+                response_text = cloud["response"]
+                function_calls = cloud["function_calls"]
+                dispatched = dispatch(function_calls)
+                source = "cloud"
+            else:
+                print(
+                    f"[turn {turn_no}] cloud handoff failed: {cloud.get('error')!r}",
+                    flush=True,
+                )
+
     if function_calls:
         reply_text = dispatched.ack_text or "I am unable to comply with that request, Ethan."
     else:
@@ -215,21 +242,28 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         else None
     )
     decode_str = f"{decode_ms}ms" if decode_ms is not None else "n/a"
+    cloud_str = (
+        f" cloud={_ms(t_cloud_start, t_cloud_end)}ms"
+        if t_cloud_start is not None and t_cloud_end is not None
+        else ""
+    )
     print(
         f"[turn {turn_no}] timing rag={_ms(t_rag_start, t_rag_end)}ms "
         f"llm_total={_ms(t_llm_start, t_llm_end)}ms "
         f"ttft={ttft_str} decode={decode_str} "
-        f"tts={_ms(t_tts_start, t_tts_end)}ms "
+        f"tts={_ms(t_tts_start, t_tts_end)}ms"
+        f"{cloud_str} "
+        f"source={source} "
         f"total={_ms(t_turn_start, t_tts_end)}ms",
         flush=True,
     )
 
     return {
         "reply": reply_text,
-        "thinking": thinking,
         "audio": audio_b64,
         "client_directives": dispatched.client_directives,
         "failed_calls": dispatched.failed_calls,
+        "source": source,
     }
 
 

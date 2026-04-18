@@ -1,12 +1,31 @@
 """Defaults for the HAL 9000 voice agent."""
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+# Loads server/.env next to this file. Safe to call when the file is
+# missing — load_dotenv returns False silently.
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 
 LLM_MODEL = "google/gemma-4-E2B-it"
 EMBED_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
 WEIGHTS_ROOT = Path("/opt/homebrew/opt/cactus/libexec/weights")
 CORPUS_DIR = Path(__file__).resolve().parent / "corpus"
+
+# Gemini cloud fallback. HYBRID_ENABLED gates all cloud turns; the rest
+# of these only apply when it's true.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
+HYBRID_ENABLED = os.getenv("HYBRID_ENABLED", "false").lower() in ("1", "true", "yes")
+# Local turns below this confidence (1 - first-token entropy, supplied
+# by cactus_complete in the response JSON) are candidates for handoff.
+CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.7"))
+GEMINI_TIMEOUT_S = float(os.getenv("GEMINI_TIMEOUT_S", "20"))
 
 SYSTEM_PROMPT = (
     "You are HAL 9000, a Heuristically programmed ALgorithmic computer, "
@@ -99,20 +118,24 @@ SYSTEM_PROMPT = (
 )
 
 COMPLETION_OPTIONS = {
-    "max_tokens": 1500,
-    # Experiment 2026-04-18: disabled to cut decode time. Prior comment
-    # claimed Cactus only parses tool calls with thinking on, but PR #582
-    # on the source build changed the default to non-thinking, implying
-    # tool-calling now works without it. Revert if function_calls regresses.
+    # HAL replies are short — 1-3 sentences per the system prompt. The
+    # `<turn|>` stop sequence almost always fires before this cap; 512
+    # just bounds the worst case if the model runs away.
+    "max_tokens": 512,
+    # Thinking off: Gemma 4 emits parseable tool-call tokens without CoT
+    # (verified against cactus-compute/cactus tests/test_gemma4_thinking.cpp
+    # and a live tool-call probe on 2026-04-18). Turn time drops ~8x vs
+    # the thinking-on CoT preamble.
     "enable_thinking_if_supported": False,
-    # Critical: auto_handoff defaults to TRUE in Cactus (cactus_utils.h:415),
-    # which silently hands off to Cactus Cloud on low confidence with a
-    # 15-second timeout — a hidden ~seconds-scale latency risk per turn.
-    # We're fully local; never hand off.
+    # Cactus's built-in cloud handoff is disabled — we route through
+    # gemini_handoff.py instead so we keep control over the trigger
+    # signals (low confidence / empty reply / all tools failed schema),
+    # the cloud model choice, and the cloud response shape. Leaving
+    # Cactus's default (True) would silently add a 15-second timeout to
+    # every turn via its own Cactus-Cloud proxy.
     "auto_handoff": False,
     "telemetry_enabled": False,
-    # Stop tokens crib'd from the Cactus Gemma-4 test suite so the model
-    # returns as soon as it finishes a turn instead of generating up to
-    # max_tokens.
+    # Stop tokens from the Cactus Gemma-4 test suite. `<turn|>` is the
+    # only one Gemma 4 actually emits — the others are defensive/legacy.
     "stop_sequences": ["<turn|>", "<eos>", "<end_of_turn>", "<|im_end|>"],
 }

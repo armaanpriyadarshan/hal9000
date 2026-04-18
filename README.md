@@ -260,23 +260,17 @@ server/.venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port 8000 \
 cd client && pnpm dev
 ```
 
-Open http://localhost:3000. Hold **Space** to talk, **Esc** to cancel.
+Open http://localhost:3000. Press **Space** to start recording, press
+again to stop and send. **Esc** cancels an in-flight turn.
 
 ### Startup expectations
 
-The first time the server boots on a fresh machine, lifespan runs two
-warmup passes before accepting traffic:
-
-- **Text warmup** (~30 s first boot, ~12 s cached): exercises the
-  Metal kernel graph for Gemma 4 text prefill+decode.
-- **Audio warmup** (~60 s first boot, ~20 s cached): compiles
-  `audio_encoder.mlpackage` into `audio_encoder.mlmodelc` via Core ML
-  on the Neural Engine.
-
-Total first boot ≈ 90 s; subsequent boots ≈ 30 s. The compile cache
-lives under `~/Library/Caches/com.apple.*` and persists across
-processes. Watch for `All models ready.` in the uvicorn log before
-talking to the client.
+Uvicorn binds port 8000, loads the two Cactus handles (chat + embed)
+and the Piper ONNX voice, then accepts traffic. Total ~3-5 s on a warm
+machine. No blocking warmup pass — the audio/vision encoder
+`.mlmodelc` files ship pre-compiled in the Cactus-Compute weights zip,
+so first voice turn pays only its own prefill (no Core ML JIT). Watch
+for `All models ready.` in the uvicorn log.
 
 ### Daily workflow after initial setup
 
@@ -294,34 +288,52 @@ directly.
 
 ### Performance expectations
 
-As of 2026-04-18 on an **M2 MacBook Air** (CPU-only LLM path):
+As of 2026-04-18 on an **M2 MacBook Air** (CPU-only LLM path), with
+Gemma 4 thinking disabled:
 
 | phase | ms/turn | notes |
 |---|---|---|
-| RAG embed (voice turn) | 0-400 | skipped on first voice turn (no text); runs on text turns |
-| LLM prefill (TTFT) | ~20 000 | `[system + tools + ~2 s audio]` ≈ 1 900 tokens at ~90 prefill tok/s on CPU |
-| LLM decode | ~20 000 | chain-of-thought tokens + reply. ~15–20 decode tok/s on CPU |
-| Piper TTS | 200-500 | single-sentence reply |
-| **total per voice turn** | **~40 000** | KV cache is reset between voice turns, so every turn pays full prefill |
+| RAG embed | 20-50 | top-2 hybrid (embedding + BM25 via RRF) over `corpus/*.md` |
+| LLM prefill (TTFT) | ~4 000 | ~1 000 tokens at ~90 tok/s on CPU (system + tools + audio placeholders) |
+| LLM decode | 500-4 000 | ~15-20 tok/s on CPU; decode length tracks reply length |
+| Piper TTS | 60-500 | Piper ONNX; scales with reply length |
+| Gemini cloud (when triggered) | ~600-1 500 | text turns only; see hybrid section below |
+| **text turn total** | **~5-8 s** | tool call: ~5 s; RAG-heavy answer: ~8 s |
+| **voice turn total** | **~6-10 s** | adds audio-encoder pass (ANE, pre-compiled `.mlmodelc`) |
 
 The server logs `[turn N] timing rag=… llm_total=… ttft=… decode=…
-tts=… total=…` per turn for attribution.
+tts=… cloud=… source=local|cloud total=…` per turn for attribution.
 
-**Why it's CPU-bound:** Cactus v1.14 only ships ANE-accelerated
-`audio_encoder.mlpackage` and `vision_encoder.mlpackage` for
-Gemma 4. The LLM main-transformer `model.mlpackage` isn't in the
-HF `-apple` zip. Cactus logs
+**Why it's CPU-bound:** Cactus ships ANE-accelerated encoder
+`.mlpackage`s for Gemma 4 but not the LLM main-transformer
+`model.mlpackage` — their publisher (`python/src/publish_to_hf.py`)
+special-cases Gemma 4 to build only the two encoders. Cactus logs
 `[WARN] [npu] [gemma4] model.mlpackage not found; using CPU prefill`
-on startup — that's the wall we hit. When Cactus ships that artifact
-prefill should collapse from ~20 s to <1 s (Cactus's published
-M5 numbers: 660 prefill tok/s, 40 decode tok/s).
+on startup (`model_gemma4.cpp:206`). When Cactus publishes the LLM
+mlpackage, prefill should drop significantly (their published M5
+numbers with ANE prefill: 660 tok/s).
 
-**Why `reset()` between turns:** we tested dropping `state.llm.reset()`
-to benefit from smart prompt caching across turns — Cactus silently
-emits empty completions on back-to-back voice turns when prior-turn
-audio tokens linger in the KV cache. PR #588 ("Gemma4 fixes" on the
-source HEAD) does not fix this path. Until it does, we pay full
-prefill every turn.
+**Why `reset()` between turns:** Cactus's audio decode path
+(`model_gemma4_mm.cpp:decode_multimodal`) skips the prefix-caching
+path used by text turns. Back-to-back voice turns without reset
+produce empty completions because the new audio's embeddings never
+get applied to the cached KV.
+
+### Hybrid cloud fallback (optional)
+
+With `HYBRID_ENABLED=true` in `server/.env`, text turns that hit any
+of three triggers hand off to Google's Generative Language API:
+
+- Local confidence below `CONFIDENCE_THRESHOLD` (default 0.7,
+  entropy-based per `cactus_complete.cpp:781`)
+- Local reply is empty AND no tool calls were emitted
+- Every emitted tool call failed schema validation
+
+Default cloud model is `gemini-3.1-flash-lite-preview` (fast, supports
+disabling thinking, round-trip ~1 s for typical prompts). Switch to
+`gemini-3.1-pro-preview` via the `GEMINI_MODEL` env var if you want
+the flagship — note it requires thinking (budget can't be 0), so
+round-trip jumps to 2-4 s. Voice turns stay local.
 
 ### Troubleshooting
 

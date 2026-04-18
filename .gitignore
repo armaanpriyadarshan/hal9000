@@ -4,6 +4,7 @@ cactus/
 .playwright-mcp/
 weights/
 server/.venv/
+server/.env
 server/corpus/*.bin
 voice/.venv/
 voice/hal.onnx

@@ -56,12 +56,20 @@ def build_context_block(chunks: list[dict[str, Any]]) -> str:
     usable = [c for c in chunks if c.get("content")]
     if not usable:
         return ""
-    parts = ["Relevant reference material:\n"]
+    # Header matches Cactus's own auto-RAG wording (cactus_rag.cpp:183)
+    # except we substitute HAL's "say so plainly rather than speculate"
+    # phrasing from the system prompt for Cactus's default "I don't have
+    # enough information" boilerplate, which is off-brand for the agent.
+    parts = [
+        "[Retrieved Context — Use ONLY this information to answer. "
+        "If the answer is not in the context, say so plainly rather "
+        "than speculate.]\n",
+    ]
     for c in usable:
         source = c.get("source", "unknown")
         content = (c.get("content") or "").strip()
         if len(content) > _MAX_CHARS_PER_CHUNK:
             content = content[:_MAX_CHARS_PER_CHUNK].rstrip() + "…"
-        parts.append(f"--- {source} ---\n{content}\n")
-    parts.append("--- end reference material ---\n\n")
+        parts.append(f"---\n{content}\n(Source: {source})")
+    parts.append("---\n\n")
     return "\n".join(parts)
