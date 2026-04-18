@@ -1,14 +1,15 @@
 /**
- * Registry of interior-view modules HAL can navigate the camera to.
+ * Registry of interior-view modules HAL can teleport the camera to.
  *
  * The keys of INTERIOR_AREAS must stay synced with the navigate_to enum
  * in server/tools.py. Drift = valid tool calls resolve to an undefined
- * entry here and the navigation silently no-ops.
+ * entry here and the teleport silently no-ops.
  *
- * ADJACENCY encodes the real ISS topology between pressurised modules.
- * HATCH_HINT maps each edge to the glb hatch node name at the midpoint
- * of the crossing, so the camera flies through hatch centres rather
- * than straight through bulkheads.
+ * `glbNodeName` values are post-sanitiser: three.js's GLTFLoader strips
+ * `.` and other reserved chars from glTF node names via
+ * PropertyBinding.sanitizeNodeName, so `US_Lab.CenterOfNodeForRoulette`
+ * in the glb resolves as `US_LabCenterOfNodeForRoulette` on the loaded
+ * scene.
  */
 
 export const CANONICAL_AREAS = [
@@ -106,73 +107,9 @@ export const INTERIOR_AREAS: Record<CanonicalArea, AreaEntry> = {
   },
 };
 
-export const ADJACENCY: Record<CanonicalArea, CanonicalArea[]> = {
-  pmm:         ["tranquility"],
-  tranquility: ["pmm", "unity", "cupola"],
-  cupola:      ["tranquility"],
-  unity:       ["tranquility", "airlock", "destiny"],
-  airlock:     ["unity"],
-  destiny:     ["unity", "harmony"],
-  harmony:     ["destiny", "columbus", "kibo_jpm"],
-  columbus:    ["harmony"],
-  kibo_jpm:    ["harmony", "kibo_jlp"],
-  kibo_jlp:    ["kibo_jpm"],
-};
-
-/**
- * Directional hatch-node name hint for each adjacency edge.
- *
- * Lookup is undirected — if "A→B" is missing, try "B→A". Values are
- * glb node names dumped from iss-interior.glb, with dots stripped:
- * three.js's GLTFLoader runs PropertyBinding.sanitizeNodeName on every
- * node name and removes "." (and other reserved chars) entirely, so
- * "Node1_Int_Hub.FWD" in the glb resolves as "Node1_Int_HubFWD" on the
- * loaded scene. If a hint is wrong the flight falls back to the
- * midpoint of the two module bounding-box centres (see
- * ISSInteriorScene).
- */
-export const HATCH_HINT: Record<string, string> = {
-  "unity→destiny":       "Node1_Int_HubFWD",
-  "unity→tranquility":   "Node1_Int_HubPRT",
-  "unity→airlock":       "Node1_Int_HubSBD",
-  "tranquility→cupola":  "Node3_Int_HubNDR",
-  "tranquility→pmm":     "Node3_Int_HubFWD",
-  "destiny→harmony":     "Node2_Int_HubAFT",
-  "harmony→columbus":    "Node2_Int_HubSBD",
-  "harmony→kibo_jpm":    "Node2_Int_HubPRT",
-  "kibo_jpm→kibo_jlp":   "JLP_Metal_Hatch_Nadir",
-};
-
 export function isCanonicalArea(v: unknown): v is CanonicalArea {
   return (
     typeof v === "string" &&
     (CANONICAL_AREAS as readonly string[]).includes(v)
   );
-}
-
-/**
- * Shortest-path traversal through the adjacency graph. Returns the full
- * chain including `from` and `to`, or null if unreachable (shouldn't
- * happen with the hand-authored graph, but guards against future typos).
- */
-export function bfs(
-  from: CanonicalArea,
-  to: CanonicalArea,
-): CanonicalArea[] | null {
-  if (from === to) return [from];
-  const visited = new Set<CanonicalArea>([from]);
-  const queue: { node: CanonicalArea; path: CanonicalArea[] }[] = [
-    { node: from, path: [from] },
-  ];
-  while (queue.length > 0) {
-    const { node, path } = queue.shift()!;
-    for (const next of ADJACENCY[node]) {
-      if (visited.has(next)) continue;
-      const nextPath = [...path, next];
-      if (next === to) return nextPath;
-      visited.add(next);
-      queue.push({ node: next, path: nextPath });
-    }
-  }
-  return null;
 }

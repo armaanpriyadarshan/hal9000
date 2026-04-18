@@ -1,35 +1,35 @@
 "use client";
 
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, Environment } from "@react-three/drei";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, type ComponentRef } from "react";
 import * as THREE from "three";
+
+type OrbitControlsRef = ComponentRef<typeof OrbitControls>;
 
 import {
   CANONICAL_AREAS,
-  HATCH_HINT,
   INTERIOR_AREAS,
-  bfs,
   isCanonicalArea,
   type CanonicalArea,
 } from "@/lib/interiorAreas";
 
-const CAMERA_POSITION: [number, number, number] = [55.214, -0.95, -33.493];
+const CAMERA_POSITION = new THREE.Vector3(55.214, -0.95, -33.493);
 // Rotated 90° right (clockwise around Y) from the original -Z heading.
-const CAMERA_TARGET: [number, number, number] = [54.214, -0.95, -33.493];
+const CAMERA_TARGET = new THREE.Vector3(54.214, -0.95, -33.493);
 
-const SEGMENT_MS = 500;
+// How far in front of the anchor the OrbitControls target sits. The camera
+// orbits this target on a 1-unit sphere centred on the anchor, so look-around
+// feels like a subtle head turn rather than a walk-around.
+const LOOK_DISTANCE = 1;
+const LOOK_DIRECTION = new THREE.Vector3(-1, 0, 0);
 
-type Flight = {
-  waypoints: THREE.Vector3[];
-  startedAt: number;
-  segmentMs: number;
-};
-
-function easeInOutCubic(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
+// Restrict how far the crew can swing the view away from the default heading
+// so the interior never spins into a full 360° sweep.
+const AZIMUTH_RANGE = Math.PI / 4; // ±45° horizontal
+const POLAR_MIN = Math.PI / 2 - Math.PI / 6; // -30° from horizon
+const POLAR_MAX = Math.PI / 2 + Math.PI / 6; // +30° from horizon
 
 function Model() {
   const { scene } = useGLTF("/iss-interior.glb");
@@ -62,15 +62,17 @@ function Model() {
   return <primitive object={scene} />;
 }
 
-function FlightController({ area }: { area: CanonicalArea | null }) {
+function AreaAnchor({
+  area,
+  controlsRef,
+}: {
+  area: CanonicalArea | null;
+  controlsRef: React.RefObject<OrbitControlsRef | null>;
+}) {
   const { camera } = useThree();
   const { scene: gltfScene } = useGLTF("/iss-interior.glb");
 
-  const flightRef = useRef<Flight | null>(null);
-  const originRef = useRef<CanonicalArea | null>(null);
-
-  // Memoise area → world-space bounding-box centre once per glb load.
-  // Skips areas whose glb node can't be found (logs a warning).
+  // One-time map of area → world-space bounding-box centre.
   const areaCenters = useMemo(() => {
     const map = new Map<CanonicalArea, THREE.Vector3>();
     for (const key of CANONICAL_AREAS) {
@@ -86,137 +88,22 @@ function FlightController({ area }: { area: CanonicalArea | null }) {
     return map;
   }, [gltfScene]);
 
-  // Resolve origin for a new flight: prefer the last-targeted area, else
-  // the module whose bbox contains the current camera position, else the
-  // default startup module (whichever contains CAMERA_POSITION).
-  const resolveOrigin = (): CanonicalArea | null => {
-    if (originRef.current) return originRef.current;
-    const pos = camera.position;
-    for (const key of CANONICAL_AREAS) {
-      const entry = INTERIOR_AREAS[key];
-      const node = gltfScene.getObjectByName(entry.glbNodeName);
-      if (!node) continue;
-      const box = new THREE.Box3().setFromObject(node);
-      if (box.containsPoint(pos)) return key;
-    }
-    return null;
-  };
-
-  // Look up the hatch node for an edge in either direction, returning its
-  // world-space bounding-box centre. Falls back to the midpoint of the
-  // two module centres if the hint is missing or the node can't be found.
-  const resolveHatchCenter = (
-    a: CanonicalArea,
-    b: CanonicalArea,
-  ): THREE.Vector3 => {
-    const hint = HATCH_HINT[`${a}→${b}`] ?? HATCH_HINT[`${b}→${a}`];
-    if (hint) {
-      const node = gltfScene.getObjectByName(hint);
-      if (node) {
-        return new THREE.Box3().setFromObject(node).getCenter(new THREE.Vector3());
-      }
-      console.warn(`[interior] hatch node not found: ${hint}`);
-    }
-    const cA = areaCenters.get(a);
-    const cB = areaCenters.get(b);
-    if (cA && cB) return cA.clone().add(cB).multiplyScalar(0.5);
-    return new THREE.Vector3();
-  };
-
-  // Plan a flight whenever `area` changes.
   useEffect(() => {
-    if (area === null) {
-      // Clear: single-segment lerp back to the startup pose.
-      flightRef.current = {
-        waypoints: [
-          camera.position.clone(),
-          new THREE.Vector3(...CAMERA_POSITION),
-        ],
-        startedAt: performance.now(),
-        segmentMs: SEGMENT_MS,
-      };
-      originRef.current = null;
-      return;
-    }
+    const anchor = area === null ? CAMERA_POSITION : areaCenters.get(area);
+    if (!anchor) return;
 
-    const target = area;
-    const origin = resolveOrigin();
+    camera.position.copy(anchor);
 
-    const targetCenter = areaCenters.get(target);
-    if (!targetCenter) {
-      console.warn(`[interior] target module has no center: ${target}`);
-      return;
-    }
+    const controls = controlsRef.current;
+    if (!controls) return;
 
-    let waypoints: THREE.Vector3[];
-    if (origin === null || origin === target) {
-      // Cold start or same-module nav: single-segment lerp into the target.
-      waypoints = [camera.position.clone(), targetCenter.clone()];
-    } else {
-      const chain = bfs(origin, target);
-      if (!chain) {
-        console.warn(`[interior] no path from ${origin} to ${target}`);
-        return;
-      }
-      waypoints = [camera.position.clone()];
-      for (let i = 0; i < chain.length - 1; i++) {
-        waypoints.push(resolveHatchCenter(chain[i], chain[i + 1]));
-        waypoints.push(areaCenters.get(chain[i + 1])!.clone());
-      }
-    }
-
-    flightRef.current = {
-      waypoints,
-      startedAt: performance.now(),
-      segmentMs: SEGMENT_MS,
-    };
-    originRef.current = target;
-  // camera + gltfScene + areaCenters are stable across renders (camera is
-  // the three.js camera mutated in place; gltfScene is drei-cached; areaCenters
-  // is memoised on gltfScene). Re-running on their identity would cause
-  // jittery re-plans.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [area]);
-
-  useFrame(() => {
-    const flight = flightRef.current;
-    if (!flight) return;
-
-    const elapsed = performance.now() - flight.startedAt;
-    const segmentCount = flight.waypoints.length - 1;
-    const totalMs = segmentCount * flight.segmentMs;
-
-    if (elapsed >= totalMs) {
-      const last = flight.waypoints[flight.waypoints.length - 1];
-      camera.position.copy(last);
-      if (flight.waypoints.length >= 2) {
-        // Project forward past `last` along the final segment's direction so the
-        // camera keeps looking where it was heading, not at its own position.
-        const prev = flight.waypoints[flight.waypoints.length - 2];
-        const forward = last.clone().sub(prev).normalize().add(last);
-        camera.lookAt(forward);
-      }
-      flightRef.current = null;
-      return;
-    }
-
-    const segIndex = Math.min(
-      segmentCount - 1,
-      Math.floor(elapsed / flight.segmentMs),
-    );
-    const segT = (elapsed - segIndex * flight.segmentMs) / flight.segmentMs;
-    const eased = easeInOutCubic(Math.min(1, Math.max(0, segT)));
-
-    const a = flight.waypoints[segIndex];
-    const b = flight.waypoints[segIndex + 1];
-    camera.position.lerpVectors(a, b, eased);
-
-    // Look at the waypoint two ahead when possible, so the camera is
-    // already facing the next hatch before it enters it. Fall back to
-    // the final waypoint near the end.
-    const lookIndex = Math.min(segIndex + 2, flight.waypoints.length - 1);
-    camera.lookAt(flight.waypoints[lookIndex]);
-  });
+    const target =
+      area === null
+        ? CAMERA_TARGET
+        : anchor.clone().add(LOOK_DIRECTION.clone().multiplyScalar(LOOK_DISTANCE));
+    controls.target.copy(target);
+    controls.update();
+  }, [area, camera, areaCenters, controlsRef]);
 
   return null;
 }
@@ -225,6 +112,8 @@ function Scene() {
   const params = useSearchParams();
   const raw = params.get("area");
   const area = isCanonicalArea(raw) ? raw : null;
+
+  const controlsRef = useRef<OrbitControlsRef | null>(null);
 
   return (
     <>
@@ -240,13 +129,20 @@ function Scene() {
       <Suspense fallback={null}>
         <Model />
         <Environment preset="night" environmentIntensity={0.2} />
-        <FlightController area={area} />
+        <AreaAnchor area={area} controlsRef={controlsRef} />
       </Suspense>
-      {/* OrbitControls kept for manual exploration when no flight is active.
-          Its target is irrelevant once FlightController calls camera.lookAt each
-          frame — the controls lose the thread during a flight, but recover on
-          the next user drag. Zoom + pan stay disabled. */}
-      <OrbitControls enableZoom={false} enablePan={false} target={CAMERA_TARGET} />
+      <OrbitControls
+        ref={controlsRef}
+        enableZoom={false}
+        enablePan={false}
+        minDistance={LOOK_DISTANCE}
+        maxDistance={LOOK_DISTANCE}
+        minAzimuthAngle={-AZIMUTH_RANGE}
+        maxAzimuthAngle={AZIMUTH_RANGE}
+        minPolarAngle={POLAR_MIN}
+        maxPolarAngle={POLAR_MAX}
+        rotateSpeed={0.4}
+      />
     </>
   );
 }
@@ -254,7 +150,7 @@ function Scene() {
 export default function ISSInteriorScene() {
   return (
     <Canvas
-      camera={{ position: CAMERA_POSITION, fov: 60, near: 0.01, far: 1000 }}
+      camera={{ position: CAMERA_POSITION.toArray(), fov: 60, near: 0.01, far: 1000 }}
       gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.8 }}
     >
       <Scene />
