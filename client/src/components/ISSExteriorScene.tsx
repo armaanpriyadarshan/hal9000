@@ -207,9 +207,31 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
     });
 
     if (!highlight || matching.size === 0) {
-      lerpRef.current = null;
       setBoxCenter(null);
       setAnchor(null);
+      // On highlight clear, lerp camera back to the default full-ISS
+      // framing so the × (and any other clear) feels like a real
+      // "reset view" rather than leaving the camera stuck on the part.
+      if (!highlight) {
+        scene.updateMatrixWorld(true);
+        const wholeBox = new THREE.Box3().setFromObject(scene);
+        const wholeCenter = wholeBox.getCenter(new THREE.Vector3());
+        const wholeSize = wholeBox.getSize(new THREE.Vector3());
+        const wholeDiag = Math.max(wholeSize.length(), 0.1);
+        lerpRef.current = {
+          startPos: camera.position.clone(),
+          startTarget: controls?.target.clone() ?? wholeCenter.clone(),
+          endPos: new THREE.Vector3(
+            wholeCenter.x,
+            wholeCenter.y,
+            wholeCenter.z + wholeDiag * 1.1,
+          ),
+          endTarget: wholeCenter,
+          t0: performance.now(),
+        };
+      } else {
+        lerpRef.current = null;
+      }
       return;
     }
     // Reset the draggable offset on every fresh highlight so the card
