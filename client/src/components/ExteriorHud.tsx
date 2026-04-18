@@ -6,6 +6,7 @@ import { HudRow } from "./hud/HudRow";
 import { BarRow } from "./hud/BarRow";
 import { RadialGauge } from "./hud/RadialGauge";
 import { LineChart } from "./hud/LineChart";
+import { Thermometer } from "./hud/Thermometer";
 import { AttitudeIndicator } from "./hud/AttitudeIndicator";
 import { useIssLightstreamer, type LsState } from "@/hooks/useIssLightstreamer";
 import {
@@ -230,10 +231,21 @@ export default function ExteriorHud() {
             label="Cabin Press."
             value={formatPuiValue("USLAB000058", cabinKpa)}
           />
-          <HudRow
-            label="Cabin Temp"
-            value={formatPuiValue("USLAB000059", cabinC)}
-          />
+        </div>
+
+        <div className="mt-3 flex items-center justify-end gap-3">
+          <div className="flex flex-col text-right leading-tight">
+            <span className="font-mono uppercase tracking-[0.12em] text-[10px] text-white-dim">
+              Cabin Temp
+            </span>
+            <span className="font-mono uppercase tracking-[0.08em] text-xs text-white tabular-nums">
+              {formatPuiValue("USLAB000059", cabinC)}
+            </span>
+            <span className="font-mono tracking-[0.12em] text-[8px] text-white-faint mt-0.5">
+              18 – 27 °C band
+            </span>
+          </div>
+          <Thermometer valueC={cabinC} />
         </div>
 
         <div className="mt-3 pt-2 border-t border-white/10 flex flex-col gap-1.5">
