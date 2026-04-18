@@ -100,7 +100,7 @@ SYSTEM_PROMPT = (
 
 COMPLETION_OPTIONS = {
     "max_tokens": 1500,
-    # Needed for tool-calling: Gemma 4 only emits the <|tool_call_start|>...
+    # Keep thinking on: Gemma 4 only emits the <|tool_call_start|>...
     # token format Cactus parses when its chain-of-thought path is active.
     # With thinking off, it emits tool calls as plain prose that Cactus
     # doesn't recognise, so function_calls comes back empty.
@@ -108,4 +108,14 @@ COMPLETION_OPTIONS = {
     # rather than the separate `thinking` field; run_turn cleans it up
     # before TTS (see _clean_response in server.py).
     "enable_thinking_if_supported": True,
+    # Critical: auto_handoff defaults to TRUE in Cactus (cactus_utils.h:415),
+    # which silently hands off to Cactus Cloud on low confidence with a
+    # 15-second timeout — a hidden ~seconds-scale latency risk per turn.
+    # We're fully local; never hand off.
+    "auto_handoff": False,
+    "telemetry_enabled": False,
+    # Stop tokens crib'd from the Cactus Gemma-4 test suite so the model
+    # returns as soon as it finishes a turn instead of generating up to
+    # max_tokens.
+    "stop_sequences": ["<turn|>", "<eos>", "<end_of_turn>", "<|im_end|>"],
 }

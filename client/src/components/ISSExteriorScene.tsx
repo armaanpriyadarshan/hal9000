@@ -9,6 +9,8 @@ import * as THREE from "three";
 import { DraggableCaption } from "@/components/hud/DraggableCaption";
 
 import {
+  CAMERA_DISTANCE_SCALE,
+  CAMERA_OFFSET,
   SHIP_PARTS,
   isCanonicalPart,
   type CanonicalPart,
@@ -237,15 +239,13 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
     // Reset the draggable offset on every fresh highlight so the card
     // shows up in a predictable spot, not where the last drag ended.
     setCaptionOffset({ x: 180, y: -30 });
-    const entry = SHIP_PARTS[highlight];
     const box = new THREE.Box3();
     matching.forEach((m) => box.expandByObject(m));
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     const diag = Math.max(size.length(), 0.1);
-    const scale = entry.cameraDistanceScale ?? 1.8;
-    const dir = new THREE.Vector3(...entry.cameraOffset).normalize();
-    const endPos = center.clone().add(dir.multiplyScalar(diag * scale));
+    const dir = new THREE.Vector3(...CAMERA_OFFSET).normalize();
+    const endPos = center.clone().add(dir.multiplyScalar(diag * CAMERA_DISTANCE_SCALE));
 
     lerpRef.current = {
       startPos: camera.position.clone(),

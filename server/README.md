@@ -7,66 +7,33 @@ locally through Cactus, on CPU.
 
 ## Requirements
 
+See the repo-root README for full from-scratch setup. Short version:
+
 - Apple Silicon macOS with Homebrew
-- Python 3.12 (`brew install python@3.12`) to build Cactus from source
-- HuggingFace account + access to `google/gemma-4-E2B-it`
-- ~10 GB free disk during model conversion
+- Python 3.12 (to build Cactus) and 3.14 (for the server venv)
+- HuggingFace account (no gated-model access required — we pull
+  `Cactus-Compute/gemma-4-E2B-it`, which is public)
+- ~15 GB free disk
 
 ## One-time setup
 
-```bash
-# 1. Install Cactus CLI + Python FFI
-brew install cactus-compute/cactus/cactus
+All steps live in the root `README.md`. Abridged:
 
-# 2. Build Cactus from source to pick up the Gemma4 fixes (commit a875fc3)
-#    that aren't in the v1.13 brew release yet. This produces a
-#    libcactus.dylib with fast, crash-free audio-in.
-git clone https://github.com/cactus-compute/cactus.git ../cactus
-cd ../cactus
-python3.12 -m venv venv
-source venv/bin/activate
-pip install -e python
-cactus build --python
-deactivate
-cd -
-
-# 3. Point the Homebrew-shipped cactus.py at the freshly-built dylib
-mkdir -p /opt/homebrew/lib/cactus/build
-ln -sf "$(pwd)/../cactus/cactus/build/libcactus.dylib" \
-  /opt/homebrew/lib/cactus/build/libcactus.dylib
-
-# 4. Patch the brew cactus CLI's cmd_download (v1.13 references an
-#    undefined `model_name` on the --reconvert path)
-sed -i '' 's/is_vlm = '"'"'vl'"'"' in model_name.lower/model_name = model_id\n    is_vlm = '"'"'vl'"'"' in model_name.lower/' \
-  /opt/homebrew/Cellar/cactus/*/libexec/python/src/cli.py
-
-# 5. Create the server's own venv layered over Homebrew's python 3.14
-cd server
-/opt/homebrew/bin/python3.14 -m venv .venv --system-site-packages
-.venv/bin/pip install -r requirements.txt huggingface_hub
-
-# 6. Authenticate with HuggingFace
-.venv/bin/hf auth login
-
-# 7. Download + convert Gemma 4 E2B weights
-#    (the pre-converted INT4 package has missing audio embedding weights
-#    that break audio-in, so we force a fresh convert from the source.)
-HF_HUB_ENABLE_HF_TRANSFER=1 cactus download google/gemma-4-E2B-it --reconvert
-
-# 8. Download the embedder (small and fast)
-cactus download Qwen/Qwen3-Embedding-0.6B
-
-# 9. Install voice TTS deps (Piper) into server's venv, then pull the
-#    pre-trained HAL weights from HF
-cd ../server
-.venv/bin/pip install -r ../voice/requirements.txt
-cd ../voice
-../server/.venv/bin/hf download campwill/HAL-9000-Piper-TTS \
-  hal.onnx hal.onnx.json --local-dir .
-```
-
-Step 7 takes ~15-25 min (downloads ~9 GB fp16, quantises to INT4).
-Coffee break.
+1. `brew install cactus-compute/cactus/cactus python@3.12 python@3.14 cmake pnpm`
+2. Clone Cactus to `../cactus`; build the dylib from source
+   (post-v1.14 on `main`) for the non-thinking-default + audio-crash
+   + default-confidence fixes.
+3. `python3.14 -m venv server/.venv --system-site-packages`
+4. `server/.venv/bin/pip install -r server/requirements.txt huggingface_hub`
+5. `server/.venv/bin/hf auth login`
+6. `HF_HUB_ENABLE_HF_TRANSFER=1 cactus download Cactus-Compute/gemma-4-E2B-it`
+   — NO `--reconvert`; that gives up the Apple `.mlpackage` encoders.
+7. `HF_HUB_ENABLE_HF_TRANSFER=1 cactus download Cactus-Compute/Qwen3-Embedding-0.6B`
+8. `bash scripts/patch-cactus-ffi.sh` — symlinks our source dylib and
+   overrides the brew `cactus.py` inside the server venv (so
+   `_LIB_PATH` is pinned and PCM marshalling uses `from_buffer_copy`).
+9. Piper HAL voice weights: `cd voice && ../server/.venv/bin/hf download
+   campwill/HAL-9000-Piper-TTS hal.onnx hal.onnx.json --local-dir .`
 
 ## Run
 
@@ -100,13 +67,28 @@ Esc to cancel.
 
 ## Known issues
 
-- Gemma 4 main transformer runs on CPU — `model.mlpackage` for NPU
-  acceleration isn't shipped by Cactus yet. Turn time on a small
-  reply is ~1-5 s end-to-end after the fixes; longer replies scale
-  with decode tokens.
-- RAG retrieval quality is moderate. Qwen3-Embedding gives correct
-  top-k ranking for most queries; absolute cosine scores stay low,
-  which we work around by not filtering on `min_score`.
-- Voice turns don't get the user's transcript into RAG (we feed raw
+- **LLM main-transformer runs on CPU.** Cactus's Apple-variant zip
+  (`gemma-4-e2b-it-int4-apple.zip`) ships
+  `audio_encoder.mlpackage` + `vision_encoder.mlpackage` for ANE, but
+  not the LLM `model.mlpackage`. Cactus logs
+  `[WARN] [npu] [gemma4] model.mlpackage not found; using CPU prefill`
+  at startup. End-to-end voice-turn time on an M2 MacBook Air lands
+  around ~40 s: ~20 s prefill + ~20 s decode with thinking on.
+- **Turn 1 is a full minute or more on fresh boots.** Core ML has to
+  JIT-compile the audio encoder the first time the process runs. The
+  server pays this at startup via a silence-PCM warmup so the client
+  doesn't — watch for `audio warmup Nms` in the uvicorn log. Second
+  boot drops from ~60 s to ~20 s (Core ML `.mlmodelc` is cached).
+- **KV cache resets between voice turns.** Smart prompt caching (which
+  would normally let turn N skip re-prefilling the system prompt +
+  tool schema) requires us to NOT call `state.llm.reset()`. We tested
+  that: back-to-back voice turns then return empty completions — the
+  old audio-linger bug re-surfaces even on source HEAD (post-v1.14,
+  PR #588 applied). So we keep the reset and pay full prefill per turn
+  until Cactus fixes the voice-cache path.
+- **RAG retrieval quality is moderate.** Qwen3-Embedding gives correct
+  top-k ranking for most queries; absolute cosine scores stay low, so
+  we rely on top-k ordering alone rather than applying a score floor.
+- **Voice turns don't get the user's transcript into RAG** (we feed raw
   PCM to Gemma). The system uses the last assistant reply as a
   topical hint for retrieval on follow-up turns.

@@ -2,8 +2,9 @@
 
 import json
 import re
+import time
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from cactus import cactus_complete, cactus_destroy, cactus_init, cactus_reset
 
@@ -27,7 +28,6 @@ def _repair_cactus_json(raw: str) -> str:
         word = m.group(1)
         if word in _JSON_LITERALS:
             return m.group(0)
-        # Preserve any trailing whitespace that was part of the match.
         return f':"{word}"'
 
     return _BAREWORD_VALUE_RE.sub(replace, raw)
@@ -45,38 +45,40 @@ def resolve_weights(model_name: str) -> Path:
 
 
 class CactusSession:
-    """Long-lived Gemma 4 session. KV cache persists across turns.
+    """Long-lived chat session. KV cache persists across turns.
 
-    If `corpus_dir` points at a directory of txt/md files, Cactus builds
-    (or loads, with cache_index=True) a retrieval index; relevant chunks
-    are auto-injected into every completion.
+    Retrieval lives in a separate EmbedRagIndex (see rag.py); this class
+    is generation-only and is initialised without a corpus.
     """
 
-    def __init__(
-        self,
-        model_name: str,
-        corpus_dir: Path | None = None,
-        cache_index: bool = True,
-    ):
+    def __init__(self, model_name: str):
         self.weights = resolve_weights(model_name)
-        corpus_arg = str(corpus_dir) if corpus_dir else None
-        self.handle = cactus_init(str(self.weights), corpus_arg, cache_index)
+        self.handle = cactus_init(str(self.weights), None, True)
 
     def complete(
         self,
-        messages: Iterable[dict[str, Any]],
+        messages: list[dict[str, Any]],
         *,
         options: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
         pcm_data: bytes | None = None,
-        on_token: Callable[[str, int], None] | None = None,
     ) -> dict[str, Any]:
+        # Use the token callback to capture time-to-first-token; anything
+        # past the first token is pure decode. Stashed on the session so
+        # run_turn can read it without a new return-value shape.
+        self.last_ttft_ms: float | None = None
+        _t_start = time.perf_counter()
+
+        def _on_token(_token: str, _token_id: int) -> None:
+            if self.last_ttft_ms is None:
+                self.last_ttft_ms = (time.perf_counter() - _t_start) * 1000.0
+
         raw = cactus_complete(
             self.handle,
-            json.dumps(list(messages)),
+            json.dumps(messages),
             json.dumps(options) if options else None,
             json.dumps(tools) if tools else None,
-            on_token,
+            _on_token,
             pcm_data,
         )
         try:
@@ -112,9 +114,3 @@ class CactusSession:
         if self.handle:
             cactus_destroy(self.handle)
             self.handle = 0
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.close()

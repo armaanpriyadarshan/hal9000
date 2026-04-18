@@ -11,15 +11,13 @@ Expects the weights next to this file:
 If either is missing, every `synthesize*` call raises; the server
 wrapper (server/tts.py) catches and falls back to macOS `say`.
 
-Public API (drop-in for server/tts.py):
+Public API:
     synthesize(text) -> (numpy_array_f32, sample_rate)
     synthesize_wav_bytes(text) -> bytes
-    synthesize_wav_base64(text) -> str
 """
 
 from __future__ import annotations
 
-import base64
 import io
 from pathlib import Path
 
@@ -69,7 +67,3 @@ def synthesize_wav_bytes(text: str) -> bytes:
     buf = io.BytesIO()
     sf.write(buf, wav, sr, format="WAV", subtype="PCM_16")
     return buf.getvalue()
-
-
-def synthesize_wav_base64(text: str) -> str:
-    return base64.b64encode(synthesize_wav_bytes(text)).decode("ascii")

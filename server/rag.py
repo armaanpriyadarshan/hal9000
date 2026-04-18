@@ -19,6 +19,11 @@ from cactus import cactus_destroy, cactus_init, cactus_rag_query
 from cactus_runtime import resolve_weights
 
 
+# Cap injected chunk length. Qwen3 returns full source chunks; a few are
+# large enough to crowd the system prompt.
+_MAX_CHARS_PER_CHUNK = 1400
+
+
 class EmbedRagIndex:
     """Owns the embedding-model Cactus handle and its corpus index."""
 
@@ -26,7 +31,7 @@ class EmbedRagIndex:
         self.weights = resolve_weights(embed_model)
         self.handle = cactus_init(str(self.weights), str(corpus_dir), cache_index)
 
-    def query(self, text: str, top_k: int = 5) -> list[dict[str, Any]]:
+    def query(self, text: str, top_k: int = 3) -> list[dict[str, Any]]:
         if not text.strip():
             return []
         raw = cactus_rag_query(self.handle, text, top_k)
@@ -41,28 +46,22 @@ class EmbedRagIndex:
             cactus_destroy(self.handle)
             self.handle = 0
 
-    def __enter__(self):
-        return self
 
-    def __exit__(self, *exc):
-        self.close()
+def build_context_block(chunks: list[dict[str, Any]]) -> str:
+    """Format retrieved chunks for injection into the system prompt.
 
-
-def build_context_block(
-    chunks: list[dict[str, Any]],
-    min_score: float = 0.0,
-    max_chars_per_chunk: int = 1400,
-) -> str:
-    """Format retrieved chunks for injection into the system prompt."""
-    usable = [c for c in chunks if c.get("score", 0) >= min_score and c.get("content")]
+    Qwen3 absolute scores stay low on this corpus; we intentionally do
+    not filter on score and rely on top-k ranking instead.
+    """
+    usable = [c for c in chunks if c.get("content")]
     if not usable:
         return ""
     parts = ["Relevant reference material:\n"]
     for c in usable:
         source = c.get("source", "unknown")
         content = (c.get("content") or "").strip()
-        if len(content) > max_chars_per_chunk:
-            content = content[:max_chars_per_chunk].rstrip() + "…"
+        if len(content) > _MAX_CHARS_PER_CHUNK:
+            content = content[:_MAX_CHARS_PER_CHUNK].rstrip() + "…"
         parts.append(f"--- {source} ---\n{content}\n")
     parts.append("--- end reference material ---\n\n")
     return "\n".join(parts)

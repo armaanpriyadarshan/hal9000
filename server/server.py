@@ -22,6 +22,7 @@ Run:
 """
 
 import re
+import time
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any
@@ -125,11 +126,23 @@ def messages_with_context(query_text: str) -> list[dict[str, Any]]:
 def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     assert state.llm is not None
     turn_no = len([m for m in state.messages if m["role"] == "user"])
-    # Clear KV cache between turns. Cactus/Gemma-4 back-to-back audio turns
-    # silently produce empty completions when prior-turn audio tokens linger
-    # in cache. Rebuilds from state.messages on the next complete() call.
+    t_turn_start = time.perf_counter()
+
+    # Clear KV cache between voice turns. Cactus/Gemma-4 back-to-back
+    # audio turns silently produce empty completions when prior-turn
+    # audio tokens linger in cache. Empirically still true on the
+    # a875fc3f source build (post-v1.14, PR #588 applied) — turn 2+
+    # returned empty without this reset. The cost is a full re-prefill
+    # of [system + tools] each turn (~20 s on M2 Air CPU) because smart
+    # prompt caching can't kick in without the KV persisting across turns.
+    # Will revisit when Cactus ships either a voice-turn cache fix or
+    # the Gemma-4 LLM model.mlpackage (ANE-accelerated prefill).
     state.llm.reset()
+
+    t_rag_start = time.perf_counter()
     msgs = messages_with_context(query_text)
+    t_rag_end = time.perf_counter()
+
     # Intentional per-turn diagnostics — HAL runs headless; these lines
     # are the only way to see what Gemma did without attaching a debugger.
     print(
@@ -137,12 +150,16 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         f"history_len={len(msgs)} roles={[m['role'] for m in msgs]}",
         flush=True,
     )
+
+    t_llm_start = time.perf_counter()
     result = state.llm.complete(
         msgs,
         pcm_data=pcm_data,
         options=COMPLETION_OPTIONS,
         tools=cactus_tools_json(),
     )
+    t_llm_end = time.perf_counter()
+
     response_text = _clean_response(result.get("response", "") or "")
     thinking = result.get("thinking", "") or ""
     function_calls = result.get("function_calls") or []
@@ -178,18 +195,86 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     # tokens — storing the tokens without a following tool-result message left
     # a dangling exchange that confused Gemma on follow-up turns.
     state.messages.append({"role": "assistant", "content": reply_text})
+
+    t_tts_start = time.perf_counter()
+    audio_b64 = synth_wav_base64(reply_text)
+    t_tts_end = time.perf_counter()
+
+    def _ms(start: float, end: float) -> int:
+        return int((end - start) * 1000)
+
     print(
         f"[turn {turn_no}] spoken={reply_text!r} failed={dispatched.failed_calls}",
+        flush=True,
+    )
+    ttft_ms = getattr(state.llm, "last_ttft_ms", None)
+    ttft_str = f"{int(ttft_ms)}ms" if ttft_ms is not None else "n/a"
+    decode_ms = (
+        int((t_llm_end - t_llm_start) * 1000 - ttft_ms)
+        if ttft_ms is not None
+        else None
+    )
+    decode_str = f"{decode_ms}ms" if decode_ms is not None else "n/a"
+    print(
+        f"[turn {turn_no}] timing rag={_ms(t_rag_start, t_rag_end)}ms "
+        f"llm_total={_ms(t_llm_start, t_llm_end)}ms "
+        f"ttft={ttft_str} decode={decode_str} "
+        f"tts={_ms(t_tts_start, t_tts_end)}ms "
+        f"total={_ms(t_turn_start, t_tts_end)}ms",
         flush=True,
     )
 
     return {
         "reply": reply_text,
         "thinking": thinking,
-        "audio": synth_wav_base64(reply_text),
+        "audio": audio_b64,
         "client_directives": dispatched.client_directives,
         "failed_calls": dispatched.failed_calls,
     }
+
+
+def _warmup_llm() -> None:
+    """Pay the one-time CoreML/Metal compile cost at startup instead of
+    inside turn 1. First text inference compiles Metal kernels; first
+    audio inference compiles the audio_encoder.mlpackage via Core ML.
+    Without this, turn 1 blocks for ~2 minutes the first time a user
+    speaks.
+
+    We run with a low max_tokens so decode is cheap, then reset() to
+    clear the warmup KV cache before the real conversation starts.
+    Compiled graphs persist across reset; only cached tokens go.
+    """
+    assert state.llm is not None
+    warm_opts = {**COMPLETION_OPTIONS, "max_tokens": 4}
+
+    print("Warming Gemma text path...", flush=True)
+    t0 = time.perf_counter()
+    state.llm.complete(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": "status check"},
+        ],
+        options=warm_opts,
+        tools=cactus_tools_json(),
+    )
+    print(f"  text warmup {int((time.perf_counter() - t0) * 1000)}ms", flush=True)
+    state.llm.reset()
+
+    # Audio warmup: 0.5 s of silence at 16 kHz int16 LE mono = 16 000 bytes.
+    # Triggers compilation of audio_encoder.mlpackage (Core ML on ANE).
+    print("Warming Gemma audio path...", flush=True)
+    t0 = time.perf_counter()
+    state.llm.complete(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": ""},
+        ],
+        options=warm_opts,
+        tools=cactus_tools_json(),
+        pcm_data=b"\x00" * 16_000,
+    )
+    print(f"  audio warmup {int((time.perf_counter() - t0) * 1000)}ms", flush=True)
+    state.llm.reset()
 
 
 @asynccontextmanager
@@ -200,6 +285,7 @@ async def lifespan(_app: FastAPI):
     state.rag = EmbedRagIndex(EMBED_MODEL, CORPUS_DIR, cache_index=True)
     print("Warming HAL TTS...", flush=True)
     synth_wav_bytes("Initialized.")
+    _warmup_llm()
     reset_conversation()
     print("All models ready.", flush=True)
     yield

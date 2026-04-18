@@ -11,14 +11,10 @@
  */
 
 export type PuiId =
-  | "TIME_000001"
   | "USLAB000058"
   | "USLAB000059"
   | "USLAB000053"
   | "USLAB000055"
-  | "NODE3000001"
-  | "NODE3000003"
-  | "NODE3000010"
   | "NODE3000008"
   | "NODE3000009"
   | "S4000002"
@@ -79,7 +75,7 @@ export type PuiMeta = {
   /** Human label for the HUD row. */
   label: string;
   /** Which section the row belongs to. */
-  section: "time" | "ECLSS" | "EPS" | "ADCS";
+  section: "ECLSS" | "EPS" | "ADCS";
   /** Parse raw string → display-ready number. Null when unparsable. */
   parse: (raw: string | undefined) => number | null;
   /** Suffix rendered after the value. */
@@ -89,11 +85,6 @@ export type PuiMeta = {
 };
 
 export const PUI_META: Record<PuiId, PuiMeta> = {
-  TIME_000001: {
-    label: "GMT",
-    section: "time",
-    parse: (raw) => toNumber(raw),
-  },
   USLAB000058: {
     label: "CABIN PRESS.",
     section: "ECLSS",
@@ -132,32 +123,6 @@ export const PUI_META: Record<PuiId, PuiMeta> = {
       return psi === null ? null : ppCo2ToPpm(psi);
     },
     unit: "PPM",
-    digits: 0,
-  },
-  NODE3000001: {
-    label: "NODE 3 ppO₂",
-    section: "ECLSS",
-    parse: (raw) => {
-      const psi = toNumber(raw);
-      return psi === null ? null : ppO2ToPercent(psi);
-    },
-    unit: "%",
-    digits: 2,
-  },
-  NODE3000003: {
-    label: "NODE 3 ppCO₂",
-    section: "ECLSS",
-    parse: (raw) => {
-      const psi = toNumber(raw);
-      return psi === null ? null : ppCo2ToPpm(psi);
-    },
-    unit: "PPM",
-    digits: 0,
-  },
-  NODE3000010: {
-    label: "O₂ GEN.",
-    section: "ECLSS",
-    parse: (raw) => toNumber(raw),
     digits: 0,
   },
   NODE3000008: {

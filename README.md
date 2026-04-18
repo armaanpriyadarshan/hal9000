@@ -91,19 +91,22 @@ Potential directions:
 
 ## Setup (new Mac, from scratch)
 
-End-to-end setup takes ~45-60 min, mostly model downloads. Run steps in
-order — the server venv in step 4 layers on top of the Cactus dylib
-built in step 3.
+End-to-end setup takes ~20-30 min, mostly model downloads. Run steps in
+order — the server venv in step 4 layers on top of the source-built
+Cactus dylib from step 3, and step 5 patches the FFI so it loads that
+dylib instead of brew's 1.13 bundled one.
 
 ### Prerequisites
 
-- **Apple Silicon Mac** (M1/M2/M3/M4). Cactus ships ARM64-only; Intel
+- **Apple Silicon Mac** (M1/M2/M3/M4/M5). Cactus ships ARM64-only; Intel
   Macs will fail at `cactus download`.
-- **~15 GB free disk** for Gemma 4 E2B conversion + model cache.
-- **HuggingFace account** with approved access to
-  [`google/gemma-4-E2B-it`](https://huggingface.co/google/gemma-4-E2B-it)
-  (gated — request access on the model page and wait for approval
-  before starting step 4).
+- **~15 GB free disk**: ~6.4 GB for the Gemma 4 E2B INT4 weights, ~4.7 GB
+  for the zip download, ~400 MB for the Qwen3 embedder, plus ~2 GB of
+  Python deps in the server venv.
+- **HuggingFace account**. The weights we use live at
+  [`Cactus-Compute/gemma-4-E2B-it`](https://huggingface.co/Cactus-Compute/gemma-4-E2B-it)
+  and are **not gated** — you still need an HF account to authenticate
+  the CLI, but no access request is required.
 - **Xcode Command Line Tools**:
   ```bash
   xcode-select --install
@@ -117,9 +120,14 @@ brew install python@3.12 python@3.14 cmake pnpm
 brew install cactus-compute/cactus/cactus
 ```
 
-- `python@3.12` is required to *build* Cactus from source.
+- `python@3.12` is required to *build* Cactus from source (step 3).
 - `python@3.14` hosts the server's venv.
 - `pnpm` drives the Next.js client (repo uses `pnpm-lock.yaml`).
+- The `cactus` brew formula provides the CLI we use for `cactus
+  download` and the per-user weights directory
+  (`/opt/homebrew/opt/cactus/libexec/weights`). The bundled dylib it
+  ships is brew-stable 1.13, which predates the Gemma-4 fixes we need —
+  we replace it in step 3.
 
 ### 2. Clone
 
@@ -128,56 +136,75 @@ git clone https://github.com/armaanpriyadarshan/hal9000.git
 cd hal9000
 ```
 
-### 3. Cactus runtime (build from source)
+### 3. Build Cactus from source
 
-The v1.13 brew release has Gemma 4 audio-input bugs. Build from source
-to pick up commit `a875fc3` (fast, crash-free audio-in), then point
-the brew-installed `cactus.py` at the fresh `libcactus.dylib`.
+Brew's `cactus 1.13` dylib predates three Gemma-4 fixes we depend on:
+- PR #582 (non-thinking default for Gemma 4)
+- PR #588 (audio-input crash on back-to-back voice turns)
+- PR #591 (default confidence routing, avoids silent cloud handoff)
+
+All three landed post-v1.14 on `main`. Build from HEAD:
 
 ```bash
-# Clone Cactus alongside this repo (gitignored path ../cactus/ is
-# already reserved)
+# Clone Cactus alongside this repo (../cactus is gitignored)
 git clone https://github.com/cactus-compute/cactus.git ../cactus
 cd ../cactus
 python3.12 -m venv venv
 source venv/bin/activate
 pip install -e python
-cactus build --python
+cactus build --python   # produces cactus/build/libcactus.dylib
 deactivate
 cd -
-
-# Symlink the freshly-built dylib to where brew's cactus.py looks
-mkdir -p /opt/homebrew/lib/cactus/build
-ln -sf "$(pwd)/../cactus/cactus/build/libcactus.dylib" \
-  /opt/homebrew/lib/cactus/build/libcactus.dylib
-
-# Patch the brew cactus CLI — v1.13 references an undefined
-# `model_name` on the --reconvert path
-sed -i '' 's/is_vlm = '"'"'vl'"'"' in model_name.lower/model_name = model_id\n    is_vlm = '"'"'vl'"'"' in model_name.lower/' \
-  /opt/homebrew/Cellar/cactus/*/libexec/python/src/cli.py
 ```
 
-### 4. Server (Python 3.14 venv, models, env)
+### 4. Server venv + models
 
 ```bash
 cd server
 
-# Venv layered over Homebrew python 3.14; --system-site-packages
-# lets it see the cactus.py FFI installed in step 3
+# --system-site-packages so the venv sees brew-installed tools; the
+# venv's own site-packages still wins for anything we install into it
+# (which is how we override brew's cactus.py in step 5).
 /opt/homebrew/bin/python3.14 -m venv .venv --system-site-packages
 .venv/bin/pip install -r requirements.txt huggingface_hub
 
-# Authenticate with HuggingFace (needed for gated Gemma 4 download)
+# Authenticate with HuggingFace
 .venv/bin/hf auth login
 
-# Download + convert Gemma 4 E2B weights — ~15-25 min, ~9 GB fp16
-# quantised to ~4.5 GB INT4. --reconvert is required; the
-# pre-converted package on HF has missing audio embedding weights.
-HF_HUB_ENABLE_HF_TRANSFER=1 cactus download google/gemma-4-E2B-it --reconvert
+# Download pre-packaged Gemma 4 E2B weights (INT4 quantized, Apple
+# variant). ~4.7 GB zip, extracts to ~6.4 GB. On Apple Silicon this
+# auto-selects the "-apple" zip which ships audio_encoder.mlpackage
+# and vision_encoder.mlpackage for ANE acceleration of those encoders.
+# NOTE: do not pass --reconvert — it rebuilds from raw Google
+# safetensors and gives up the ANE-ready mlpackages.
+HF_HUB_ENABLE_HF_TRANSFER=1 cactus download Cactus-Compute/gemma-4-E2B-it
 
-# Download the RAG embedder (~300 MB, fast)
-cactus download Qwen/Qwen3-Embedding-0.6B
+# RAG embedder (~410 MB)
+HF_HUB_ENABLE_HF_TRANSFER=1 cactus download Cactus-Compute/Qwen3-Embedding-0.6B
+
+cd ..
 ```
+
+### 5. Patch the Cactus FFI in the server venv
+
+```bash
+bash scripts/patch-cactus-ffi.sh
+```
+
+This script does two things:
+
+1. **Symlinks `/opt/homebrew/lib/cactus/build/libcactus.dylib`** to the
+   source build from step 3. Requires `sudo` (writes into
+   `/opt/homebrew/lib/cactus/`).
+2. **Installs the source `cactus.py`** into the server venv's
+   site-packages, overriding brew's. Hard-pins `_LIB_PATH` to the
+   symlink above, and replaces per-byte `ctypes` PCM marshalling with
+   `from_buffer_copy` (the original path unpacks every byte of audio
+   as a separate ctypes arg — seconds of pure Python overhead per
+   voice turn).
+
+The script is idempotent and verifies the FFI loads correctly at the
+end.
 
 #### `server/.env` (optional)
 
@@ -196,13 +223,13 @@ GEMINI_TIMEOUT_S=20
 Get a key at https://aistudio.google.com/app/apikey. `.env` is
 gitignored.
 
-### 5. Voice (HAL TTS weights)
+### 6. Voice (HAL TTS weights)
 
 The HAL voice ONNX weights live outside git (~61 MB). Pulled from
 HuggingFace:
 
 ```bash
-cd ../voice
+cd voice
 ../server/.venv/bin/pip install -r requirements.txt  # into server venv
 ../server/.venv/bin/hf download campwill/HAL-9000-Piper-TTS \
   hal.onnx hal.onnx.json --local-dir .
@@ -212,7 +239,7 @@ cd ..
 If you skip this, the server falls back to macOS `say` and still runs
 — you'll just hear macOS's voice instead of HAL's.
 
-### 6. Client (Next.js)
+### 7. Client (Next.js)
 
 ```bash
 cd client
@@ -220,7 +247,7 @@ pnpm install
 cd ..
 ```
 
-### 7. Run
+### 8. Run
 
 Two terminals:
 
@@ -234,6 +261,22 @@ cd client && pnpm dev
 ```
 
 Open http://localhost:3000. Hold **Space** to talk, **Esc** to cancel.
+
+### Startup expectations
+
+The first time the server boots on a fresh machine, lifespan runs two
+warmup passes before accepting traffic:
+
+- **Text warmup** (~30 s first boot, ~12 s cached): exercises the
+  Metal kernel graph for Gemma 4 text prefill+decode.
+- **Audio warmup** (~60 s first boot, ~20 s cached): compiles
+  `audio_encoder.mlpackage` into `audio_encoder.mlmodelc` via Core ML
+  on the Neural Engine.
+
+Total first boot ≈ 90 s; subsequent boots ≈ 30 s. The compile cache
+lives under `~/Library/Caches/com.apple.*` and persists across
+processes. Watch for `All models ready.` in the uvicorn log before
+talking to the client.
 
 ### Daily workflow after initial setup
 
@@ -249,17 +292,60 @@ cd client && pnpm dev
 No venv activation needed — we call the binaries in `.venv/bin/`
 directly.
 
+### Performance expectations
+
+As of 2026-04-18 on an **M2 MacBook Air** (CPU-only LLM path):
+
+| phase | ms/turn | notes |
+|---|---|---|
+| RAG embed (voice turn) | 0-400 | skipped on first voice turn (no text); runs on text turns |
+| LLM prefill (TTFT) | ~20 000 | `[system + tools + ~2 s audio]` ≈ 1 900 tokens at ~90 prefill tok/s on CPU |
+| LLM decode | ~20 000 | chain-of-thought tokens + reply. ~15–20 decode tok/s on CPU |
+| Piper TTS | 200-500 | single-sentence reply |
+| **total per voice turn** | **~40 000** | KV cache is reset between voice turns, so every turn pays full prefill |
+
+The server logs `[turn N] timing rag=… llm_total=… ttft=… decode=…
+tts=… total=…` per turn for attribution.
+
+**Why it's CPU-bound:** Cactus v1.14 only ships ANE-accelerated
+`audio_encoder.mlpackage` and `vision_encoder.mlpackage` for
+Gemma 4. The LLM main-transformer `model.mlpackage` isn't in the
+HF `-apple` zip. Cactus logs
+`[WARN] [npu] [gemma4] model.mlpackage not found; using CPU prefill`
+on startup — that's the wall we hit. When Cactus ships that artifact
+prefill should collapse from ~20 s to <1 s (Cactus's published
+M5 numbers: 660 prefill tok/s, 40 decode tok/s).
+
+**Why `reset()` between turns:** we tested dropping `state.llm.reset()`
+to benefit from smart prompt caching across turns — Cactus silently
+emits empty completions on back-to-back voice turns when prior-turn
+audio tokens linger in the KV cache. PR #588 ("Gemma4 fixes" on the
+source HEAD) does not fix this path. Until it does, we pay full
+prefill every turn.
+
 ### Troubleshooting
 
-- **`cactus download` fails with model_name undefined** — the patch
-  in step 3 didn't apply. Re-run the `sed` command.
-- **`libcactus.dylib` not found at runtime** — the symlink in step 3
-  is missing or points nowhere. Verify with
+- **Server startup warning `[WARN] [npu] [gemma4] model.mlpackage not
+  found`** — expected. That file isn't in the public zip yet. The
+  audio + vision encoder `.mlpackage`s next to the weights still go
+  to ANE; only LLM prefill falls back to CPU.
+- **Turns return `"I am unable to comply with that request, Ethan."`
+  immediately (sub-2 s)** — the audio-linger bug has re-surfaced. The
+  server falls back to that line when `function_calls` and
+  `response_text` are both empty. Confirm `state.llm.reset()` is
+  still being called at the top of `run_turn` in `server/server.py`.
+- **Turn 1 takes ~3 min** — you booted before warmup finished, or the
+  CoreML compile cache was cold. Wait for `All models ready.` in the
+  uvicorn log; subsequent turns will be ~40 s on M2 Air.
+- **`libcactus.dylib` not found at runtime** — the symlink from
+  `scripts/patch-cactus-ffi.sh` is missing. Verify with
   `ls -l /opt/homebrew/lib/cactus/build/libcactus.dylib`.
+- **`import cactus` resolves to the brew 1.13 module** — the venv FFI
+  shim from step 5 didn't land. Re-run `bash scripts/patch-cactus-ffi.sh`
+  and confirm `python -c "import cactus; print(cactus.__file__)"`
+  prints a path inside `server/.venv/`.
 - **Gemma download hangs** — check `~/.cache/huggingface/` for partial
   files, delete them, retry with `HF_HUB_ENABLE_HF_TRANSFER=1`.
-- **Audio input crashes or returns garbled replies** — you're on the
-  brew cactus dylib, not the source build. Re-run step 3's symlink.
 - **First server startup is slow** — it builds the RAG index from
   `server/corpus/*.md` and caches to `corpus/data.bin`. Subsequent
   starts skip this.
