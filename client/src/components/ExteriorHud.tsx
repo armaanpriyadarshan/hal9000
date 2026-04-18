@@ -5,8 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { HudRow } from "./hud/HudRow";
 import { BarRow } from "./hud/BarRow";
 import { RadialGauge } from "./hud/RadialGauge";
-import { Sparkline } from "./hud/Sparkline";
-import { LineChart, type ChartSeries } from "./hud/LineChart";
+import { LineChart } from "./hud/LineChart";
 import { AttitudeIndicator } from "./hud/AttitudeIndicator";
 import { useIssLightstreamer, type LsState } from "@/hooks/useIssLightstreamer";
 import {
@@ -18,21 +17,17 @@ import {
 } from "@/lib/issLive";
 
 const MISSION_EPOCH = Date.parse("2026-02-26T12:00:00Z");
-const SPARKLINE_WINDOW = 60;
+const TREND_WINDOW = 60;
 
-// ----- rolling sparkline history per PUI --------------------------------
-
-function useSparklineHistory(
+// Collect a rolling history of a single PUI's values, deduped on the
+// per-entry receivedAt (monotonic) so unrelated PUI pushes don't add
+// duplicate samples. Only used where trend actually matters (ppCO₂).
+function useTrendHistory(
   values: Partial<Record<PuiId, PuiValue>>,
   puiId: PuiId,
 ): number[] {
   const [history, setHistory] = useState<number[]>([]);
-  // Dedupe on receivedAt (performance.now() captured at push time — always
-  // monotonically increasing). Using the Lightstreamer TimeStamp field broke
-  // for PUIs that emit empty or repeating timestamps, and the values-map
-  // identity changes on every PUI push so the effect fires for all PUIs.
   const lastReceivedAt = useRef<number>(-1);
-
   useEffect(() => {
     const entry = values[puiId];
     if (!entry) return;
@@ -42,12 +37,11 @@ function useSparklineHistory(
     if (parsed === null) return;
     setHistory((prev) => {
       const next = [...prev, parsed];
-      return next.length > SPARKLINE_WINDOW
-        ? next.slice(next.length - SPARKLINE_WINDOW)
+      return next.length > TREND_WINDOW
+        ? next.slice(next.length - TREND_WINDOW)
         : next;
     });
   }, [values, puiId]);
-
   return history;
 }
 
@@ -164,33 +158,19 @@ export default function ExteriorHud() {
   const wasteH2O = readPui(lsValues, "NODE3000008");
   const potableH2O = readPui(lsValues, "NODE3000009");
 
-  const cabinTempHistory = useSparklineHistory(lsValues, "USLAB000059");
-  const ppCo2History = useSparklineHistory(lsValues, "USLAB000055");
-  const nodeCo2History = useSparklineHistory(lsValues, "NODE3000003");
-  const array1History = useSparklineHistory(lsValues, "S4000002");
-  const array2History = useSparklineHistory(lsValues, "P4000001");
-  const cmgHistory = useSparklineHistory(lsValues, "USLAB000010");
+  // Only stat where trend is genuinely load-bearing: ppCO₂. CO₂ buildup
+  // is a life-support-critical trend; the LineChart shows whether it's
+  // rising, stable, or falling. Other metrics are either near-constant
+  // (cabin press, ppO₂), oscillate too slowly to sample at NASA's
+  // ~1/min push rate (orbit-cycle-driven array current/voltage), or
+  // are already visualised by a radial (CMG momentum, SARJ angle).
+  const ppCo2History = useTrendHistory(lsValues, "USLAB000055");
 
   // Total attitude error magnitude (sqrt of sum of squares).
   const attitudeError =
     roll !== null && pitch !== null && yaw !== null
       ? Math.sqrt(roll * roll + pitch * pitch + yaw * yaw)
       : null;
-
-  // Lab vs Node 3 ppCO₂ — same units + similar range, per-series
-  // normalisation in LineChart still makes both visible even when
-  // they drift by different magnitudes.
-  const co2Series: ChartSeries[] = [
-    { label: "lab", values: ppCo2History },
-    { label: "node 3", values: nodeCo2History, dashed: true },
-  ];
-  // Solar array current + voltage. Independent per-series normalisation
-  // in LineChart shows the shape of each even though the magnitudes
-  // aren't comparable (A vs V).
-  const powerSeries: ChartSeries[] = [
-    { label: "1A curr.", values: array1History },
-    { label: "2A volt.", values: array2History, dashed: true },
-  ];
 
   return (
     <>
@@ -228,13 +208,16 @@ export default function ExteriorHud() {
           </span>
         </div>
 
-        {/* Lab vs Node 3 ppCO₂ */}
-        <div className="mt-2 flex justify-end">
-          <LineChart series={co2Series} width={260} height={64} />
+        <div className="mt-3 flex justify-end">
+          <LineChart
+            series={[{ label: "ppCO₂", values: ppCo2History }]}
+            width={260}
+            height={56}
+          />
         </div>
-        <div className="mt-1 flex justify-between font-mono uppercase tracking-[0.16em] text-[8px] text-white-faint">
-          <span>— Lab</span>
-          <span>-- Node 3</span>
+        <div className="mt-1 flex justify-between font-mono uppercase tracking-[0.14em] text-[8px] text-white-faint">
+          <span>trend · last {ppCo2History.length}</span>
+          <span>NASA pushes ~1/min</span>
         </div>
 
         <div className="mt-3 flex flex-col gap-1.5">
@@ -251,7 +234,6 @@ export default function ExteriorHud() {
             label="Cabin Temp"
             value={formatPuiValue("USLAB000059", cabinC)}
           />
-          <Sparkline values={cabinTempHistory} width={260} height={14} showMarker />
         </div>
 
         <div className="mt-3 pt-2 border-t border-white/10 flex flex-col gap-1.5">
@@ -313,16 +295,13 @@ export default function ExteriorHud() {
             </div>
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-3">
           <RadialGauge
             size={40}
             pct={cmg !== null ? cmg / 100 : undefined}
             label="CMG Momentum"
             value={formatPuiValue("USLAB000010", cmg)}
           />
-          <div className="flex-1">
-            <Sparkline values={cmgHistory} width={120} height={28} showMarker grid />
-          </div>
         </div>
         <div className="mt-2 pt-2 border-t border-white/10">
           <HudRow
@@ -346,36 +325,15 @@ export default function ExteriorHud() {
           GMT · MET {formatMet(now)}
         </div>
 
-        <div className="mt-4 flex justify-end">
-          <LineChart series={powerSeries} width={260} height={52} />
-        </div>
-        <div className="mt-1 flex justify-between font-mono uppercase tracking-[0.16em] text-[8px] text-white-faint">
-          <span>— 1A curr.</span>
-          <span>-- 2A volt.</span>
-        </div>
-
-        <div className="mt-3">
-          <div className="flex items-baseline gap-3">
-            <span className="font-mono uppercase tracking-[0.12em] text-[10px] text-white-dim">
-              Array 1A Curr.
-            </span>
-            <span className="font-mono uppercase tracking-[0.08em] text-xs text-white tabular-nums ml-auto">
-              {formatPuiValue("S4000002", array1ACurr)}
-            </span>
-          </div>
-          <Sparkline values={array1History} width={260} height={14} showMarker />
-        </div>
-
-        <div className="mt-2">
-          <div className="flex items-baseline gap-3">
-            <span className="font-mono uppercase tracking-[0.12em] text-[10px] text-white-dim">
-              Array 2A Volt.
-            </span>
-            <span className="font-mono uppercase tracking-[0.08em] text-xs text-white tabular-nums ml-auto">
-              {formatPuiValue("P4000001", array2AVolt)}
-            </span>
-          </div>
-          <Sparkline values={array2History} width={260} height={14} showMarker />
+        <div className="mt-4 flex flex-col gap-1.5">
+          <HudRow
+            label="Array 1A Curr."
+            value={formatPuiValue("S4000002", array1ACurr)}
+          />
+          <HudRow
+            label="Array 2A Volt."
+            value={formatPuiValue("P4000001", array2AVolt)}
+          />
         </div>
 
         <div className="mt-3 flex justify-end">
