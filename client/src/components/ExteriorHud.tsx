@@ -2,12 +2,69 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 
-// Mission epoch chosen so the MET counter reads ~60 days at current time.
+// Mission epoch anchors MET; not used for any derived real telemetry.
 const MISSION_EPOCH = Date.parse("2026-02-26T12:00:00Z");
-// ISS orbital period: 92.68 minutes = 5560.8 seconds.
-const ORBIT_PERIOD_S = 5560.8;
-// Real ISS inclination.
+// ISS orbital inclination — NORAD catalog 25544 keeps this near-constant.
 const INCLINATION_DEG = 51.64;
+// ISS orbital period (92.68 min). Only used for the static PERIOD readout.
+const ORBIT_PERIOD_MIN = 92.68;
+// wheretheiss.at poll interval. Their rate limit is ~1/sec; 5 s keeps us
+// comfortably under and avoids hammering a free API for a decorative HUD.
+const ISS_POLL_MS = 5000;
+
+type IssLive = {
+  latitude: number;
+  longitude: number;
+  altitude: number;
+  velocity: number;
+  visibility: "daylight" | "eclipsed";
+  fetchedAt: number;
+};
+
+function useIssLive(): { data: IssLive | null; stale: boolean } {
+  const [data, setData] = useState<IssLive | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchOnce = async () => {
+      try {
+        const res = await fetch(
+          "https://api.wheretheiss.at/v1/satellites/25544",
+          { cache: "no-store" },
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        setData({
+          latitude: json.latitude,
+          longitude: json.longitude,
+          altitude: json.altitude,
+          velocity: json.velocity,
+          visibility:
+            json.visibility === "eclipsed" ? "eclipsed" : "daylight",
+          fetchedAt: Date.now(),
+        });
+      } catch {
+        // Network hiccup; keep last value. Don't spam the console — one
+        // failure is noise, the retry will usually succeed.
+      }
+    };
+
+    fetchOnce();
+    const id = setInterval(fetchOnce, ISS_POLL_MS);
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      clearInterval(tick);
+    };
+  }, []);
+
+  const stale = data ? now - data.fetchedAt > ISS_POLL_MS * 3 : true;
+  return { data, stale };
+}
 
 function HudRow({ label, value }: { label: string; value: string }) {
   return (
@@ -52,10 +109,23 @@ function BarRow({
   );
 }
 
-function GroupLabel({ children }: { children: ReactNode }) {
+function GroupLabel({
+  title,
+  source,
+}: {
+  title: string;
+  source?: ReactNode;
+}) {
   return (
-    <div className="font-mono uppercase tracking-[0.18em] text-[9px] text-white-faint mb-1.5 mt-3 first:mt-0">
-      {children}
+    <div className="flex items-baseline justify-between mt-3 mb-1.5 first:mt-0">
+      <span className="font-mono uppercase tracking-[0.18em] text-[9px] text-white-dim">
+        {title}
+      </span>
+      {source ? (
+        <span className="font-mono uppercase tracking-[0.12em] text-[9px] text-white-faint">
+          {source}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -75,7 +145,8 @@ function formatMet(now: number): string {
   return `${pad(days, 3)}/${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
-function formatLatLon(v: number, pos: string, neg: string): string {
+function formatLatLon(v: number | undefined, pos: string, neg: string): string {
+  if (v === undefined) return "——";
   const sign = v < 0 ? neg : pos;
   return `${Math.abs(v).toFixed(2)}° ${sign}`;
 }
@@ -87,37 +158,32 @@ export default function ExteriorHud() {
     return () => clearInterval(id);
   }, []);
 
-  const elapsedMs = Math.max(0, now - MISSION_EPOCH);
-  const orbitCount = Math.floor(elapsedMs / 1000 / ORBIT_PERIOD_S);
-  const orbitPhase = ((now / 1000) % ORBIT_PERIOD_S) / ORBIT_PERIOD_S;
+  const { data, stale } = useIssLive();
+  const liveStatus = !data ? "LINKING" : stale ? "STALE" : "LIVE";
 
-  // Orbital — typical post-reboost altitude drifts within ~418-420 km.
-  const altKm = 418.5 + Math.sin(now / 30_000) * 1.2;
-  const velKmS = 7.663 + Math.cos(now / 45_000) * 0.006;
-  // Ground track: lat oscillates within ±inclination; lon advances with the
-  // orbit and Earth rotation (fake but plausible).
-  const lat = INCLINATION_DEG * Math.sin(orbitPhase * Math.PI * 2);
-  const lonBase = ((now / 600_000) * 360) % 360;
-  const lon = lonBase > 180 ? lonBase - 360 : lonBase;
+  // Real values from wheretheiss.at (velocity is km/h → convert to km/s).
+  const altKm = data?.altitude;
+  const velKmS = data ? data.velocity / 3600 : undefined;
+  const lat = data?.latitude;
+  const lon = data?.longitude;
+  const illuminated = data?.visibility === "daylight";
 
-  // Sun exposure over the orbit (roughly ~60% illuminated, ~40% eclipse).
-  const sunElevation = Math.sin(orbitPhase * Math.PI * 2);
-  const illuminated = sunElevation > -0.15;
-
-  // ECLSS — Environmental Control & Life Support.
+  // Simulated ECLSS — no free public endpoint. Tagged SIM in the header.
   const pressureKpa = 101.3 + Math.sin(now / 8_000) * 0.2;
   const o2Pct = 20.9 + Math.cos(now / 9_000) * 0.06;
   const co2Ppm = 2800 + Math.sin(now / 5_000) * 500;
   const humidityPct = 48 + Math.sin(now / 11_000) * 4;
   const cabinTempC = 22.5 + Math.cos(now / 17_000) * 0.6;
 
-  // EPS — Electrical Power System. Array power tracks sunlight; battery
-  // discharges during eclipse and recharges under illumination.
-  const arrayKw = illuminated
-    ? Math.max(0, 88 * Math.max(0, sunElevation)) + Math.sin(now / 3_000) * 1.5
-    : 0;
-  const batterySoc =
-    0.78 + 0.18 * Math.sin(orbitPhase * Math.PI * 2 + Math.PI / 3);
+  // Simulated EPS — tracks illumination when we know it.
+  const sunFactor = data ? (illuminated ? 1 : 0) : 0.6;
+  const arrayKw =
+    sunFactor * 88 + Math.sin(now / 3_000) * 1.5 * sunFactor;
+  const batterySoc = data
+    ? illuminated
+      ? 0.85 + Math.sin(now / 40_000) * 0.1
+      : 0.62 + Math.sin(now / 40_000) * 0.08
+    : 0.78;
   const loadKw = 72 + Math.cos(now / 7_000) * 2.5;
 
   return (
@@ -133,34 +199,49 @@ export default function ExteriorHud() {
 
       <div className="h-px w-full bg-white/15 my-3" />
 
-      <GroupLabel>Mission Time</GroupLabel>
+      <GroupLabel title="Mission Time" />
       <div className="flex flex-col gap-1">
         <HudRow label="GMT" value={`${formatClock(now)} UTC`} />
         <HudRow label="MET" value={formatMet(now)} />
-        <HudRow label="ORBIT N°" value={String(orbitCount).padStart(4, "0")} />
       </div>
 
-      <GroupLabel>Orbit</GroupLabel>
+      <GroupLabel
+        title="Orbit"
+        source={
+          <span
+            className={
+              liveStatus === "LIVE"
+                ? "text-white"
+                : liveStatus === "LINKING"
+                  ? "text-white-dim"
+                  : "text-white-faint"
+            }
+          >
+            ● {liveStatus}
+          </span>
+        }
+      />
       <div className="flex flex-col gap-1.5">
         <BarRow
           label="ALTITUDE"
-          value={`${altKm.toFixed(2)} KM`}
-          pct={(altKm - 408) / (420 - 408)}
+          value={altKm !== undefined ? `${altKm.toFixed(2)} KM` : "—— KM"}
+          pct={altKm !== undefined ? (altKm - 408) / (422 - 408) : 0}
         />
-        <HudRow label="VELOCITY" value={`${velKmS.toFixed(3)} KM/S`} />
+        <HudRow
+          label="VELOCITY"
+          value={velKmS !== undefined ? `${velKmS.toFixed(3)} KM/S` : "—— KM/S"}
+        />
         <HudRow label="INCLINATION" value={`${INCLINATION_DEG.toFixed(2)}°`} />
-        <HudRow label="PERIOD" value="92.68 MIN" />
-        <BarRow
-          label="ORBIT PHASE"
-          value={`${(orbitPhase * 100).toFixed(0)} %`}
-          pct={orbitPhase}
-        />
+        <HudRow label="PERIOD" value={`${ORBIT_PERIOD_MIN.toFixed(2)} MIN`} />
         <HudRow label="LAT" value={formatLatLon(lat, "N", "S")} />
         <HudRow label="LON" value={formatLatLon(lon, "E", "W")} />
-        <HudRow label="SUN" value={illuminated ? "ILLUMINATED" : "ECLIPSE"} />
+        <HudRow
+          label="SUN"
+          value={data ? (illuminated ? "ILLUMINATED" : "ECLIPSE") : "——"}
+        />
       </div>
 
-      <GroupLabel>ECLSS</GroupLabel>
+      <GroupLabel title="ECLSS" source="SIM" />
       <div className="flex flex-col gap-1.5">
         <HudRow label="CABIN PRESS." value={`${pressureKpa.toFixed(2)} KPA`} />
         <BarRow
@@ -181,7 +262,7 @@ export default function ExteriorHud() {
         <HudRow label="CABIN TEMP" value={`${cabinTempC.toFixed(1)} °C`} />
       </div>
 
-      <GroupLabel>EPS</GroupLabel>
+      <GroupLabel title="EPS" source="SIM" />
       <div className="flex flex-col gap-1.5">
         <BarRow
           label="ARRAY PWR"
