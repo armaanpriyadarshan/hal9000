@@ -234,30 +234,25 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
     };
     setBoxCenter(center);
 
-    // Leader-line anchor: the matched mesh whose world-space centre is
-    // closest to where the camera ends up. Always on actual geometry,
-    // always in the frame of the camera's final framing. Much more
-    // reliable than bounding-box centroid (empty space for spread-out
-    // groups) or largest mesh (arbitrary).
-    let anchorMesh: THREE.Mesh | null = null;
+    // Leader-line anchor: the matched mesh whose *world-space bounding-
+    // box centre* is closest to where the camera ends up. Must be the
+    // world bbox centre, not `mesh.getWorldPosition()` — the latter
+    // returns the mesh's local origin transformed to world space, which
+    // glTF files often place at (0,0,0) or some arbitrary pivot far
+    // from the visible geometry.
+    let bestCenter: THREE.Vector3 | null = null;
     let anchorDist = Infinity;
-    const meshPos = new THREE.Vector3();
     matching.forEach((m) => {
       m.updateWorldMatrix(true, false);
-      m.getWorldPosition(meshPos);
-      const d = meshPos.distanceTo(endPos);
+      const wb = new THREE.Box3().setFromObject(m);
+      const wc = wb.getCenter(new THREE.Vector3());
+      const d = wc.distanceTo(endPos);
       if (d < anchorDist) {
         anchorDist = d;
-        anchorMesh = m;
+        bestCenter = wc;
       }
     });
-    if (anchorMesh) {
-      const out = new THREE.Vector3();
-      (anchorMesh as THREE.Mesh).getWorldPosition(out);
-      setAnchor(out);
-    } else {
-      setAnchor(center);
-    }
+    setAnchor(bestCenter ?? center);
   }, [scene, highlight, camera, controls, defaultMat, highlightedMat]);
 
   useFrame(() => {
