@@ -250,26 +250,61 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
       {highlight && boxCenter && (
         <Html
           position={[boxCenter.x, boxCenter.y, boxCenter.z]}
-          center
           zIndexRange={[100, 0]}
+          style={{ pointerEvents: "none" }}
         >
-          <div className="relative bg-black border-[0.5px] border-white/50 px-3 py-2 w-[220px] pointer-events-none">
-            <button
-              type="button"
-              onClick={() => router.push("/exterior")}
-              className="pointer-events-auto absolute top-1 right-1.5 font-mono text-[14px] leading-none text-white-dim hover:text-white"
-              aria-label="Clear highlight"
+          {/* Relative wrapper at the 3D anchor point. Leader line extends
+              right to the caption box so the box doesn't cover the mesh. */}
+          <div className="relative">
+            <svg
+              width="180"
+              height="1"
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                overflow: "visible",
+              }}
             >
-              ×
-            </button>
-            <div className="font-mono uppercase tracking-[0.18em] text-[8px] text-white-dim pr-4">
-              {SHIP_PARTS[highlight].kind}
-            </div>
-            <div className="font-serif text-[18px] leading-tight text-white mt-0.5 pr-4">
-              {SHIP_PARTS[highlight].displayName}
-            </div>
-            <div className="mt-1.5 font-mono text-[9px] leading-snug text-white-dim">
-              {SHIP_PARTS[highlight].description}
+              <circle
+                cx={0}
+                cy={0.5}
+                r={2.5}
+                fill="none"
+                stroke="#fff"
+                strokeWidth={0.5}
+              />
+              <line
+                x1={5}
+                y1={0.5}
+                x2={176}
+                y2={0.5}
+                stroke="rgba(255,255,255,0.6)"
+                strokeWidth={0.5}
+              />
+            </svg>
+            <div
+              className="absolute bg-black border-[0.5px] border-white/50 px-3 py-2 w-[220px]"
+              style={{ left: 180, top: -30 }}
+            >
+              <button
+                type="button"
+                onClick={() => router.push("/exterior")}
+                className="absolute top-1 right-1.5 font-mono text-[14px] leading-none text-white-dim hover:text-white"
+                style={{ pointerEvents: "auto" }}
+                aria-label="Clear highlight"
+              >
+                ×
+              </button>
+              <div className="font-mono uppercase tracking-[0.18em] text-[8px] text-white-dim pr-4">
+                {SHIP_PARTS[highlight].kind}
+              </div>
+              <div className="font-serif text-[18px] leading-tight text-white mt-0.5 pr-4">
+                {SHIP_PARTS[highlight].displayName}
+              </div>
+              <div className="mt-1.5 font-mono text-[9px] leading-snug text-white-dim">
+                {SHIP_PARTS[highlight].description}
+              </div>
             </div>
           </div>
         </Html>
