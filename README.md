@@ -330,9 +330,9 @@ the local reply wins.
 
 The cloud path uses Cactus's own proxy at `https://104.198.76.3/api/v1`,
 which routes to a Gemini model based on the `CACTUS_CLOUD_MODEL` env
-var. Default: `gemini-3.1-pro-preview` (flagship, ~2 s). Alternatives
-we've verified work: `gemini-3.1-flash-lite-preview` (~1 s),
-`gemini-2.5-flash-lite` (~0.4 s). Swap by editing `server/.env`.
+var. Default: `gemini-3.1-flash-lite-preview` (~1 s roundtrip).
+Alternatives we've verified work: `gemini-3.1-pro-preview` (flagship,
+~2 s), `gemini-2.5-flash-lite` (~0.4 s). Swap by editing `server/.env`.
 
 Auth is a `CACTUS_CLOUD_KEY` issued by Cactus-Compute (`cactus auth` in
 their CLI). Flip `auto_handoff: False` in `server/config.py`'s
