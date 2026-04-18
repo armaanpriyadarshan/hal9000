@@ -58,3 +58,35 @@ def test_dispatch_missing_required_arg_fails():
     assert result.client_directives == []
     assert len(result.failed_calls) == 1
     assert result.ack_text == "I am unable to comply with that request, Ethan."
+
+
+def test_dispatch_multiple_valid_calls_concats_acks():
+    calls = [
+        {"name": "set_view", "arguments": {"view": "exterior"}},
+        {"name": "set_view", "arguments": {"view": "interior"}},
+    ]
+    result = dispatch(calls)
+    assert result.client_directives == [
+        {"name": "set_view", "arguments": {"view": "exterior"}},
+        {"name": "set_view", "arguments": {"view": "interior"}},
+    ]
+    assert result.failed_calls == []
+    assert result.ack_text == (
+        "Bringing up the exterior view. Bringing up the interior view."
+    )
+
+
+def test_dispatch_mix_of_valid_and_invalid_appends_suffix():
+    calls = [
+        {"name": "set_view", "arguments": {"view": "exterior"}},
+        {"name": "set_view", "arguments": {"view": "cupola"}},
+    ]
+    result = dispatch(calls)
+    assert result.client_directives == [
+        {"name": "set_view", "arguments": {"view": "exterior"}},
+    ]
+    assert len(result.failed_calls) == 1
+    assert result.ack_text == (
+        "Bringing up the exterior view. "
+        "I was unable to comply with 1 other request."
+    )
