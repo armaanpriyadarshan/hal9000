@@ -90,3 +90,22 @@ def test_dispatch_mix_of_valid_and_invalid_appends_suffix():
         "Bringing up the exterior view. "
         "I was unable to comply with 1 other request."
     )
+
+
+import pytest
+
+
+@pytest.mark.parametrize("payload", [None, "oops", 42, {"name": "set_view"}])
+def test_dispatch_malformed_payload_is_noop(payload):
+    result = dispatch(payload)
+    assert result.ack_text == ""
+    assert result.client_directives == []
+    assert result.failed_calls == []
+
+
+def test_dispatch_entry_without_name_is_skipped():
+    calls = [{"arguments": {"view": "exterior"}}]
+    result = dispatch(calls)
+    assert result.ack_text == ""
+    assert result.client_directives == []
+    assert result.failed_calls == []
