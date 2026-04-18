@@ -251,7 +251,6 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
         <Html
           position={[boxCenter.x, boxCenter.y, boxCenter.z]}
           center
-          distanceFactor={5}
           zIndexRange={[100, 0]}
         >
           <div className="relative bg-black border-[0.5px] border-white/50 px-3 py-2 w-[220px] pointer-events-none">
