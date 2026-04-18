@@ -1,12 +1,36 @@
 """Thin wrapper around the Cactus Python FFI for Gemma 4 audio-in chat."""
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from cactus import cactus_complete, cactus_destroy, cactus_init, cactus_reset
 
 from config import WEIGHTS_ROOT
+
+
+# Cactus' Gemma 4 output serialises tool-call arguments with UNQUOTED string
+# values when Gemma emits them in the free-text token format, e.g.:
+#     "arguments":{"part":solar_arrays}
+# which is not valid JSON. We repair the string before json.loads by wrapping
+# bareword identifiers that appear as object values in quotes. We leave the
+# JSON literals (true/false/null) and numerics alone.
+_BAREWORD_VALUE_RE = re.compile(
+    r':\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?=[,}])'
+)
+_JSON_LITERALS = {"true", "false", "null"}
+
+
+def _repair_cactus_json(raw: str) -> str:
+    def replace(m: re.Match[str]) -> str:
+        word = m.group(1)
+        if word in _JSON_LITERALS:
+            return m.group(0)
+        # Preserve any trailing whitespace that was part of the match.
+        return f':"{word}"'
+
+    return _BAREWORD_VALUE_RE.sub(replace, raw)
 
 
 def resolve_weights(model_name: str) -> Path:
@@ -55,7 +79,31 @@ class CactusSession:
             on_token,
             pcm_data,
         )
-        return json.loads(raw)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+        # Cactus' Gemma 4 output leaves tool-call string arguments
+        # unquoted — e.g. {"part":solar_arrays}. Repair and retry once.
+        repaired = _repair_cactus_json(raw)
+        try:
+            parsed = json.loads(repaired)
+            print(
+                "[cactus_runtime] repaired unquoted-bareword JSON response",
+                flush=True,
+            )
+            return parsed
+        except json.JSONDecodeError as e:
+            print(
+                f"[cactus_runtime] JSON parse failed even after repair at "
+                f"char {e.pos}: {repaired[max(0, e.pos - 40) : e.pos + 40]!r}",
+                flush=True,
+            )
+            return {
+                "response": "",
+                "thinking": "",
+                "function_calls": [],
+            }
 
     def reset(self) -> None:
         cactus_reset(self.handle)

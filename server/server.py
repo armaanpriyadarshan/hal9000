@@ -45,6 +45,36 @@ from tts import synth_wav_base64, synth_wav_bytes
 
 
 _CHANNEL_MARKER_RE = re.compile(r"<\|channel\|?>[^\n]*\n?")
+# Matches Gemma's occasional plain-text tool-call format when it fails to
+# emit the <|tool_call_start|>…<|tool_call_end|> tokens Cactus parses:
+#   highlight_part(part="solar_arrays")
+#   set_view(view="interior")
+_PLAIN_TOOL_CALL_RE = re.compile(
+    r"^\s*([a-z_][a-z0-9_]*)\s*\(([^)]*)\)\s*$",
+    re.IGNORECASE,
+)
+_PLAIN_ARG_RE = re.compile(
+    r"""([a-z_][a-z0-9_]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^,\s]+))""",
+    re.IGNORECASE,
+)
+
+
+def _parse_inline_tool_call(text: str) -> dict[str, Any] | None:
+    """If `text` is a standalone `name(key="val", ...)` expression — the shape
+    Gemma produces when it skips the proper tool-call tokens — return a
+    function_calls-style dict. Otherwise return None."""
+    m = _PLAIN_TOOL_CALL_RE.match(text)
+    if not m:
+        return None
+    name, arg_body = m.group(1), m.group(2)
+    args: dict[str, Any] = {}
+    for am in _PLAIN_ARG_RE.finditer(arg_body):
+        key = am.group(1)
+        value = am.group(2) if am.group(2) is not None else (
+            am.group(3) if am.group(3) is not None else am.group(4)
+        )
+        args[key] = value
+    return {"name": name, "arguments": args}
 
 
 def _clean_response(text: str) -> str:
@@ -116,6 +146,23 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     response_text = _clean_response(result.get("response", "") or "")
     thinking = result.get("thinking", "") or ""
     function_calls = result.get("function_calls") or []
+
+    # Fallback: Gemma occasionally emits tool calls as plain text
+    # (e.g. `highlight_part(part="solar_arrays")`) instead of the
+    # <|tool_call_start|>…<|tool_call_end|> tokens Cactus parses. When
+    # function_calls is empty and the cleaned response looks like a
+    # single tool-call expression, synthesise the function_call entry
+    # ourselves so dispatch still fires.
+    if not function_calls and response_text:
+        inline = _parse_inline_tool_call(response_text)
+        if inline:
+            function_calls = [inline]
+            response_text = ""
+            print(
+                f"[turn {turn_no}] inline-tool-call recovered: {inline}",
+                flush=True,
+            )
+
     print(
         f"[turn {turn_no}] response={response_text!r} function_calls={function_calls}",
         flush=True,
