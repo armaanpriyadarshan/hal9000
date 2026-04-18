@@ -19,6 +19,11 @@ const CLIENT_TOOLS: Record<string, Handler> = {
     if (view === "exterior") router.push("/exterior");
     else if (view === "interior") router.push("/");
   },
+  highlight_part: (args, { router }) => {
+    const part = typeof args.part === "string" ? args.part : "";
+    if (!part) return;
+    router.push(`/exterior?highlight=${encodeURIComponent(part)}`);
+  },
 };
 
 export function executeClientDirectives(
