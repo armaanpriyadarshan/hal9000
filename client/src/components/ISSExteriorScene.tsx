@@ -2,8 +2,16 @@
 
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars, useGLTF } from "@react-three/drei";
-import { Suspense, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo } from "react";
 import * as THREE from "three";
+
+import {
+  SHIP_PARTS,
+  isCanonicalPart,
+  type CanonicalPart,
+  type Match,
+} from "@/lib/shipParts";
 
 type OrbitControlsLike = {
   target: THREE.Vector3;
@@ -12,7 +20,7 @@ type OrbitControlsLike = {
   update: () => void;
 };
 
-const HOLOGRAM_VERSION = "fresnel-v1";
+const HOLOGRAM_VERSION = "fresnel-v2-hl";
 const HIGH_VERTEX_COUNT = 2000;
 const EDGE_ANGLE_DEG = 20;
 
@@ -45,31 +53,65 @@ const FRAGMENT_SHADER = `
   }
 `;
 
-function HologramModel() {
+function makeMaterial(highlighted: boolean): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      baseColor: { value: new THREE.Color(0x72b8e0) },
+      rimColor: { value: new THREE.Color(highlighted ? 0xffffff : 0xdcf0f8) },
+      rimPower: { value: highlighted ? 1.8 : 2.5 },
+      baseAlpha: { value: highlighted ? 0.55 : 0.2 },
+      rimAlpha: { value: highlighted ? 1.0 : 0.9 },
+    },
+    vertexShader: VERTEX_SHADER,
+    fragmentShader: FRAGMENT_SHADER,
+    side: THREE.FrontSide,
+    transparent: true,
+    depthWrite: false,
+  });
+}
+
+function resolveMatchingMeshes(
+  scene: THREE.Object3D,
+  match: Match,
+): Set<THREE.Mesh> {
+  const matches = new Set<THREE.Mesh>();
+  if (match.kind === "parent") {
+    for (const parentName of match.values) {
+      const parent = scene.getObjectByName(parentName);
+      if (!parent) continue;
+      parent.traverse((child) => {
+        if (child instanceof THREE.Mesh) matches.add(child);
+      });
+    }
+  } else {
+    scene.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      const name = child.name;
+      if (match.values.some((v) => name.startsWith(v))) matches.add(child);
+    });
+  }
+  return matches;
+}
+
+function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
   const { scene } = useGLTF("/iss-exterior.glb");
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls) as OrbitControlsLike | null;
 
+  const defaultMat = useMemo(() => makeMaterial(false), []);
+  const highlightedMat = useMemo(() => makeMaterial(true), []);
+  const lineMat = useMemo(
+    () =>
+      new THREE.LineBasicMaterial({
+        color: 0xccf5ff,
+        transparent: true,
+        opacity: 0.85,
+      }),
+    [],
+  );
+
+  // Initial load: tag meshes with default material + edges; frame the camera on the full ISS.
   useEffect(() => {
-    const surfaceMat = new THREE.ShaderMaterial({
-      uniforms: {
-        baseColor: { value: new THREE.Color(0x72b8e0) },
-        rimColor: { value: new THREE.Color(0xdcf0f8) },
-        rimPower: { value: 2.5 },
-        baseAlpha: { value: 0.2 },
-        rimAlpha: { value: 0.9 },
-      },
-      vertexShader: VERTEX_SHADER,
-      fragmentShader: FRAGMENT_SHADER,
-      side: THREE.FrontSide,
-      transparent: true,
-      depthWrite: false,
-    });
-    const lineMat = new THREE.LineBasicMaterial({
-      color: 0xccf5ff,
-      transparent: true,
-      opacity: 0.85,
-    });
     scene.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       const stale: THREE.Object3D[] = [];
@@ -85,7 +127,7 @@ function HologramModel() {
 
       const mats = Array.isArray(child.material) ? child.material : [child.material];
       mats.forEach((m) => m.dispose());
-      child.material = surfaceMat;
+      child.material = defaultMat;
       const count = child.geometry.attributes.position?.count ?? 0;
       if (count <= HIGH_VERTEX_COUNT) {
         const edges = new THREE.EdgesGeometry(child.geometry, EDGE_ANGLE_DEG);
@@ -117,18 +159,46 @@ function HologramModel() {
       controls.minDistance = minDistance;
       controls.update();
     }
-  }, [scene, camera, controls]);
+  }, [scene, camera, controls, defaultMat, lineMat]);
+
+  // Highlight pass: swap per-mesh materials based on the current highlight.
+  useEffect(() => {
+    const matching = highlight
+      ? resolveMatchingMeshes(scene, SHIP_PARTS[highlight].match)
+      : new Set<THREE.Mesh>();
+    if (highlight && matching.size === 0) {
+      console.warn(`[shipParts] no meshes matched for "${highlight}"`);
+    }
+    scene.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.material = matching.has(child) ? highlightedMat : defaultMat;
+    });
+  }, [scene, highlight, defaultMat, highlightedMat]);
 
   return <primitive object={scene} />;
 }
 
 export default function ISSExteriorScene() {
+  const searchParams = useSearchParams();
+  const highlightRaw = searchParams.get("highlight");
+  const highlight: CanonicalPart | null = isCanonicalPart(highlightRaw)
+    ? highlightRaw
+    : null;
+
   return (
     <Canvas camera={{ position: [0, 0, 30], fov: 50, near: 0.1, far: 1000 }}>
       <color attach="background" args={["#000000"]} />
-      <Stars radius={400} depth={120} count={6000} factor={5} saturation={0} fade speed={0.3} />
+      <Stars
+        radius={400}
+        depth={120}
+        count={6000}
+        factor={5}
+        saturation={0}
+        fade
+        speed={0.3}
+      />
       <Suspense fallback={null}>
-        <HologramModel />
+        <HologramModel highlight={highlight} />
       </Suspense>
       <OrbitControls enableZoom enableDamping makeDefault />
     </Canvas>
