@@ -1,5 +1,7 @@
 """Unit tests for server/tools.py — registry and dispatch."""
 
+import pytest
+
 from tools import TOOL_SPECS, cactus_tools_json
 from tools import DispatchResult, dispatch
 
@@ -90,9 +92,6 @@ def test_dispatch_mix_of_valid_and_invalid_appends_suffix():
         "Bringing up the exterior view. "
         "I was unable to comply with 1 other request."
     )
-
-
-import pytest
 
 
 @pytest.mark.parametrize("payload", [None, "oops", 42, {"name": "set_view"}])

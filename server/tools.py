@@ -19,6 +19,15 @@ Location = Literal["server", "client"]
 
 @dataclass(frozen=True)
 class ToolSpec:
+    """Registry entry for one tool HAL can call.
+
+    `ack_template` is a Python format-string rendered against the call's
+    validated arguments. Every `{placeholder}` in the template must
+    correspond to a key that is required (or otherwise guaranteed present)
+    by `parameters` — otherwise `dispatch()` will raise KeyError at
+    format time.
+    """
+
     name: str
     description: str
     parameters: dict[str, Any]
@@ -118,14 +127,16 @@ def dispatch(function_calls: Any) -> DispatchResult:
                 {"name": name, "arguments": args, "reason": e.message}
             )
             continue
-        if spec.location == "server" and spec.handler is not None:
-            try:
-                spec.handler(args)
-            except Exception as e:  # noqa: BLE001
-                result.failed_calls.append(
-                    {"name": name, "arguments": args, "reason": f"handler error: {e}"}
-                )
-                continue
+        if spec.location == "server":
+            if spec.handler is not None:
+                try:
+                    spec.handler(args)
+                except Exception as e:  # noqa: BLE001
+                    result.failed_calls.append(
+                        {"name": name, "arguments": args, "reason": f"handler error: {e}"}
+                    )
+                    continue
+            # Server tool with no handler is a no-op — still emit the ack.
         else:
             result.client_directives.append({"name": name, "arguments": args})
         result.ack_text = _append(result.ack_text, spec.ack_template.format(**args))
