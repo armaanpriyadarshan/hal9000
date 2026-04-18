@@ -3,17 +3,19 @@ import { EB_Garamond, JetBrains_Mono } from "next/font/google";
 import HalVoice from "@/components/HalVoice";
 import "./globals.css";
 
+// Distinct CSS variable names (--font-*-src) let Tailwind's @theme alias
+// --font-mono / --font-serif to them without creating a self-reference.
 const serif = EB_Garamond({
   subsets: ["latin"],
   weight: ["400", "500"],
   style: ["normal", "italic"],
-  variable: "--font-serif",
+  variable: "--font-serif-src",
 });
 
 const mono = JetBrains_Mono({
   subsets: ["latin"],
   weight: ["400", "500"],
-  variable: "--font-mono",
+  variable: "--font-mono-src",
 });
 
 export const metadata: Metadata = {
