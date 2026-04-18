@@ -175,6 +175,15 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
     });
   }, [scene, highlight, defaultMat, highlightedMat]);
 
+  useEffect(
+    () => () => {
+      defaultMat.dispose();
+      highlightedMat.dispose();
+      lineMat.dispose();
+    },
+    [defaultMat, highlightedMat, lineMat],
+  );
+
   return <primitive object={scene} />;
 }
 
