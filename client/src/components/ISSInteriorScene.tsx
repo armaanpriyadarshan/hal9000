@@ -171,9 +171,10 @@ function FlightController({ area }: { area: CanonicalArea | null }) {
       segmentMs: SEGMENT_MS,
     };
     originRef.current = target;
-  // We intentionally omit camera + gltfScene + areaCenters — those are
-  // stable (or captured via refs) and re-running the plan on their
-  // identity change would cause jittery re-plans.
+  // camera + gltfScene + areaCenters are stable across renders (camera is
+  // the three.js camera mutated in place; gltfScene is drei-cached; areaCenters
+  // is memoised on gltfScene). Re-running on their identity would cause
+  // jittery re-plans.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [area]);
 
@@ -188,7 +189,13 @@ function FlightController({ area }: { area: CanonicalArea | null }) {
     if (elapsed >= totalMs) {
       const last = flight.waypoints[flight.waypoints.length - 1];
       camera.position.copy(last);
-      camera.lookAt(last);
+      if (flight.waypoints.length >= 2) {
+        // Project forward past `last` along the final segment's direction so the
+        // camera keeps looking where it was heading, not at its own position.
+        const prev = flight.waypoints[flight.waypoints.length - 2];
+        const forward = last.clone().sub(prev).normalize().add(last);
+        camera.lookAt(forward);
+      }
       flightRef.current = null;
       return;
     }
