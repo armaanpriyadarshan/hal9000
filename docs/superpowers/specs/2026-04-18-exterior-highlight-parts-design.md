@@ -97,7 +97,7 @@ Works whether we're already on `/exterior` (Next.js re-runs `useSearchParams()` 
 
 ### Client-side — modified `client/src/components/ISSExteriorScene.tsx`
 
-Reads `useSearchParams().get("highlight")` in the page-level component, passes it to `HologramModel` as a prop. `HologramModel`:
+Reads `useSearchParams().get("highlight")` directly inside `ISSExteriorScene`, passes it to `HologramModel` as a prop (no changes needed in `client/src/app/exterior/page.tsx`). `HologramModel`:
 
 1. **On mount + on highlight change:** resolves matching meshes via the registry rule.
    - For `kind: "parent"`: `scene.getObjectByName(name)` for each value, collect descendants.
