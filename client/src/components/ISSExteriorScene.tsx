@@ -219,29 +219,6 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
     const box = new THREE.Box3();
     matching.forEach((m) => box.expandByObject(m));
     const center = box.getCenter(new THREE.Vector3());
-
-    // Leader-line anchor: use the world-space centre of the visually
-    // largest matched mesh, not the combined-box centroid. For
-    // spread-out groups like solar_arrays (which has 8 wings and a
-    // centroid in empty space inside the station), this lands the
-    // pointer on an actual visible mesh.
-    let anchorMesh: THREE.Mesh | null = null;
-    let anchorSize = -Infinity;
-    matching.forEach((m) => {
-      if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
-      const sz = m.geometry.boundingBox?.getSize(new THREE.Vector3()).length() ?? 0;
-      if (sz > anchorSize) {
-        anchorSize = sz;
-        anchorMesh = m;
-      }
-    });
-    if (anchorMesh) {
-      const anchorPos = new THREE.Vector3();
-      (anchorMesh as THREE.Mesh).getWorldPosition(anchorPos);
-      setAnchor(anchorPos);
-    } else {
-      setAnchor(center);
-    }
     const size = box.getSize(new THREE.Vector3());
     const diag = Math.max(size.length(), 0.1);
     const scale = entry.cameraDistanceScale ?? 1.8;
@@ -256,6 +233,31 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
       t0: performance.now(),
     };
     setBoxCenter(center);
+
+    // Leader-line anchor: the matched mesh whose world-space centre is
+    // closest to where the camera ends up. Always on actual geometry,
+    // always in the frame of the camera's final framing. Much more
+    // reliable than bounding-box centroid (empty space for spread-out
+    // groups) or largest mesh (arbitrary).
+    let anchorMesh: THREE.Mesh | null = null;
+    let anchorDist = Infinity;
+    const meshPos = new THREE.Vector3();
+    matching.forEach((m) => {
+      m.updateWorldMatrix(true, false);
+      m.getWorldPosition(meshPos);
+      const d = meshPos.distanceTo(endPos);
+      if (d < anchorDist) {
+        anchorDist = d;
+        anchorMesh = m;
+      }
+    });
+    if (anchorMesh) {
+      const out = new THREE.Vector3();
+      (anchorMesh as THREE.Mesh).getWorldPosition(out);
+      setAnchor(out);
+    } else {
+      setAnchor(center);
+    }
   }, [scene, highlight, camera, controls, defaultMat, highlightedMat]);
 
   useFrame(() => {
