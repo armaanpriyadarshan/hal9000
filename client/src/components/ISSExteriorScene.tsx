@@ -2,9 +2,11 @@
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, OrbitControls, Stars, useGLTF } from "@react-three/drei";
+import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { BracketFrame } from "@/components/BracketFrame";
 
 import {
   SHIP_PARTS,
@@ -20,7 +22,7 @@ type OrbitControlsLike = {
   update: () => void;
 };
 
-const HOLOGRAM_VERSION = "fresnel-v2-hl";
+const HOLOGRAM_VERSION = "fresnel-v3-hdr";
 const HIGH_VERTEX_COUNT = 2000;
 const EDGE_ANGLE_DEG = 20;
 
@@ -71,9 +73,13 @@ function makeMaterial(highlighted: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
       baseColor: { value: new THREE.Color(0x72b8e0) },
-      rimColor: { value: new THREE.Color(highlighted ? 0xffffff : 0xdcf0f8) },
-      rimPower: { value: highlighted ? 1.8 : 2.5 },
-      baseAlpha: { value: highlighted ? 0.55 : 0.2 },
+      rimColor: {
+        value: highlighted
+          ? new THREE.Color(2.4, 2.8, 3.0)
+          : new THREE.Color(0xdcf0f8),
+      },
+      rimPower: { value: highlighted ? 1.4 : 2.5 },
+      baseAlpha: { value: highlighted ? 0.85 : 0.2 },
       rimAlpha: { value: highlighted ? 1.0 : 0.9 },
     },
     vertexShader: VERTEX_SHADER,
@@ -247,9 +253,11 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
           center
           distanceFactor={8}
         >
-          <div className="pointer-events-none text-cyan-200 text-xs uppercase tracking-wide bg-black/60 px-2 py-1 rounded border border-cyan-400/40 whitespace-nowrap">
-            {SHIP_PARTS[highlight].displayName}
-          </div>
+          <BracketFrame className="px-3 py-1.5 pointer-events-none">
+            <div className="font-mono uppercase tracking-[0.15em] text-white text-xs whitespace-nowrap">
+              {SHIP_PARTS[highlight].displayName}
+            </div>
+          </BracketFrame>
         </Html>
       )}
     </>
@@ -279,6 +287,14 @@ export default function ISSExteriorScene() {
         <HologramModel highlight={highlight} />
       </Suspense>
       <OrbitControls enableZoom enableDamping makeDefault />
+      <EffectComposer>
+        <Bloom
+          intensity={1.4}
+          luminanceThreshold={0.15}
+          luminanceSmoothing={0.025}
+          mipmapBlur
+        />
+      </EffectComposer>
     </Canvas>
   );
 }
