@@ -16,6 +16,8 @@ export type PuiId =
   | "USLAB000059"
   | "USLAB000053"
   | "USLAB000055"
+  | "NODE3000001"
+  | "NODE3000003"
   | "NODE3000010"
   | "NODE3000008"
   | "NODE3000009"
@@ -132,10 +134,31 @@ export const PUI_META: Record<PuiId, PuiMeta> = {
     unit: "PPM",
     digits: 0,
   },
+  NODE3000001: {
+    label: "NODE 3 ppO₂",
+    section: "ECLSS",
+    parse: (raw) => {
+      const psi = toNumber(raw);
+      return psi === null ? null : ppO2ToPercent(psi);
+    },
+    unit: "%",
+    digits: 2,
+  },
+  NODE3000003: {
+    label: "NODE 3 ppCO₂",
+    section: "ECLSS",
+    parse: (raw) => {
+      const psi = toNumber(raw);
+      return psi === null ? null : ppCo2ToPpm(psi);
+    },
+    unit: "PPM",
+    digits: 0,
+  },
   NODE3000010: {
     label: "O₂ GEN.",
     section: "ECLSS",
     parse: (raw) => toNumber(raw),
+    digits: 0,
   },
   NODE3000008: {
     label: "WASTE H₂O",

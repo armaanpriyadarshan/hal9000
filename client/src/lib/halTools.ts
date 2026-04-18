@@ -22,7 +22,12 @@ const CLIENT_TOOLS: Record<string, Handler> = {
   highlight_part: (args, { router }) => {
     const part = typeof args.part === "string" ? args.part : "";
     if (!part) return;
-    router.push(`/exterior?highlight=${encodeURIComponent(part)}`);
+    // Append a nonce so repeat calls with the same part still change the
+    // URL and retrigger the scene's highlight effect (camera lerp + label).
+    // The scene reads only `highlight`, ignoring `t`.
+    router.push(
+      `/exterior?highlight=${encodeURIComponent(part)}&t=${Date.now().toString(36)}`,
+    );
   },
 };
 

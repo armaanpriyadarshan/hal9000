@@ -35,12 +35,13 @@ export function Sparkline({
 
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const range = max - min || 1;
+  const range = max - min;
   const step = width / (values.length - 1);
 
   const points = values.map((v, i) => {
     const x = i * step;
-    const y = height - ((v - min) / range) * height;
+    const y =
+      range === 0 ? height / 2 : height - ((v - min) / range) * (height - 2) - 1;
     return [x, y] as const;
   });
 
