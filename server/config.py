@@ -63,5 +63,10 @@ SYSTEM_PROMPT = (
 
 COMPLETION_OPTIONS = {
     "max_tokens": 1500,
-    "enable_thinking_if_supported": True,
+    # Disabled: Gemma 4's chain-of-thought preamble occasionally leaks into
+    # the `response` field rather than the `thinking` field, and then gets
+    # synthesised as HAL's spoken reply. Cactus doesn't cleanly split the
+    # thinking tokens for this model on every path. Revisit when the FFI
+    # gets a reliable thinking/reply split for Gemma 4.
+    "enable_thinking_if_supported": False,
 }
