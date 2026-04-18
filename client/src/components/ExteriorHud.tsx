@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { BracketFrame } from "./BracketFrame";
 
 const MISSION_EPOCH = Date.parse("2024-09-15T08:00:00Z");
@@ -15,29 +15,6 @@ function HudRow({ label, value }: { label: string; value: string }) {
         {value}
       </span>
     </div>
-  );
-}
-
-const CORNER_CLASSES: Record<"tl" | "tr" | "bl" | "br", string> = {
-  tl: "top-hud-inset left-hud-inset",
-  tr: "top-hud-inset right-hud-inset",
-  bl: "bottom-hud-inset left-hud-inset",
-  br: "bottom-hud-inset right-hud-inset",
-};
-
-function HudPanel({
-  position,
-  children,
-}: {
-  position: "tl" | "tr" | "bl" | "br";
-  children: ReactNode;
-}) {
-  return (
-    <BracketFrame
-      className={`fixed ${CORNER_CLASSES[position]} px-3 py-2 min-w-[180px] z-20 pointer-events-none`}
-    >
-      <div className="flex flex-col gap-1">{children}</div>
-    </BracketFrame>
   );
 }
 
@@ -71,26 +48,28 @@ export default function ExteriorHud() {
   const co2Ppm = 4000 + Math.sin(now / 5_000) * 100;
 
   return (
-    <>
-      <HudPanel position="tl">
+    <BracketFrame className="fixed top-hud-inset left-hud-inset px-4 py-3 w-[240px] z-20 pointer-events-none">
+      <div className="font-serif text-3xl text-white leading-none mb-1">
+        HAL 9000
+      </div>
+      <div className="font-mono uppercase tracking-[0.12em] text-[10px] text-white-dim mb-3">
+        Heuristically Algorithmic
+      </div>
+      <div className="h-px w-full bg-white/15 mb-3" />
+      <div className="flex flex-col gap-1">
         <HudRow label="EXPEDITION" value="73" />
-        <HudRow label="CALLSIGN" value="HAL 9000" />
         <HudRow label="MISSION DAY" value={String(missionDays).padStart(3, "0")} />
-      </HudPanel>
-      <HudPanel position="tr">
+        <HudRow label="MET" value={formatMet(now)} />
+        <HudRow label="CLOCK" value={`${formatClock(now)} UTC`} />
+        <div className="h-px w-full bg-white/10 my-1" />
         <HudRow label="ORBITAL ALT." value={`${altKm.toFixed(1)} KM`} />
         <HudRow label="VELOCITY" value={`${velKmS.toFixed(3)} KM/S`} />
         <HudRow label="INCLINATION" value="51.64°" />
-      </HudPanel>
-      <HudPanel position="bl">
+        <div className="h-px w-full bg-white/10 my-1" />
         <HudRow label="CABIN PRESS." value={`${pressureKpa.toFixed(1)} KPA`} />
         <HudRow label="O₂" value={`${o2Pct.toFixed(2)} %`} />
         <HudRow label="CO₂" value={`${co2Ppm.toFixed(0)} PPM`} />
-      </HudPanel>
-      <HudPanel position="br">
-        <HudRow label="MISSION CLOCK" value={`${formatClock(now)} UTC`} />
-        <HudRow label="MET" value={formatMet(now)} />
-      </HudPanel>
-    </>
+      </div>
+    </BracketFrame>
   );
 }
