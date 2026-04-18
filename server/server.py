@@ -2,9 +2,10 @@
 
 Endpoints:
 - GET  /api/health      -> {"status": "ok", "chat_model": ..., "embed_model": ...}
-- POST /api/text        -> {"reply": "...", "thinking": "...", "audio": "..."}
+- POST /api/text        -> {"reply": "...", "thinking": "...", "audio": "...",
+                             "client_directives": [...], "failed_calls": [...]}
                             (body: {"text": "..."})
-- POST /api/voice       -> {"reply": "...", "thinking": "...", "audio": "..."}
+- POST /api/voice       -> same response shape as /api/text
                             (body: raw int16 LE 16 kHz mono PCM)
 - POST /api/reset       -> {"ok": true}
 
@@ -20,6 +21,7 @@ Run:
     server/.venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port 8000
 """
 
+import json
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any
@@ -29,7 +31,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from cactus_runtime import CactusSession
-import json
 
 from config import (
     COMPLETION_OPTIONS,
