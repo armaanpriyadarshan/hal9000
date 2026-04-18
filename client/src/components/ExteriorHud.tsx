@@ -153,24 +153,13 @@ export default function ExteriorHud() {
   const roll = readPui(lsValues, "USLAB000022");
   const pitch = readPui(lsValues, "USLAB000023");
   const yaw = readPui(lsValues, "USLAB000024");
-  const solarBeta = readPui(lsValues, "USLAB000040");
   const sarj = readPui(lsValues, "S0000003");
   const array1ACurr = readPui(lsValues, "S4000002");
-  const array2AVolt = readPui(lsValues, "P4000001");
-  const nodeO2 = readPui(lsValues, "NODE3000001");
-  const nodeCo2 = readPui(lsValues, "NODE3000003");
-  const o2Gen = readPui(lsValues, "NODE3000010");
-  const wasteH2O = readPui(lsValues, "NODE3000008");
-  const potableH2O = readPui(lsValues, "NODE3000009");
 
   const cabinTempHistory = useSparklineHistory(lsValues, "USLAB000059");
   const ppCo2History = useSparklineHistory(lsValues, "USLAB000055");
-  const ppO2History = useSparklineHistory(lsValues, "USLAB000053");
-  const cabinPressHistory = useSparklineHistory(lsValues, "USLAB000058");
   const nodeCo2History = useSparklineHistory(lsValues, "NODE3000003");
   const array1History = useSparklineHistory(lsValues, "S4000002");
-  const array2History = useSparklineHistory(lsValues, "P4000001");
-  const cmgHistory = useSparklineHistory(lsValues, "USLAB000010");
 
   // Total attitude error magnitude (sqrt of sum of squares).
   const attitudeError =
@@ -185,122 +174,68 @@ export default function ExteriorHud() {
     { label: "lab", values: ppCo2History },
     { label: "node 3", values: nodeCo2History, dashed: true },
   ];
-  // Power trend — 1A drive current vs 2A drive voltage, independent
-  // per-series normalisation shows each shape.
-  const powerSeries: ChartSeries[] = [
-    { label: "1A CURR", values: array1History },
-    { label: "2A VOLT", values: array2History, dashed: true },
-  ];
 
   return (
     <>
-      {/* ===== TOP-LEFT ===== hero + HAL brand */}
+      {/* ===== TOP-LEFT ===== hero */}
       <div className="fixed top-hud-inset left-hud-inset z-20 pointer-events-none select-none">
-        <div className="font-serif text-[88px] text-white leading-[0.9] tracking-tight">
+        <div className="font-serif text-[72px] text-white leading-[0.9] tracking-tight">
           ISS
         </div>
-        <div className="font-mono uppercase tracking-[0.28em] text-[10px] text-white mt-2">
+        <div className="font-mono uppercase tracking-[0.26em] text-[10px] text-white mt-1.5">
           International Space Station
         </div>
-        <div className="font-mono uppercase tracking-[0.22em] text-[9px] text-white-dim mt-1">
+        <div className="font-mono uppercase tracking-[0.2em] text-[9px] text-white-dim mt-0.5">
           Expedition 78 · Crew 3
         </div>
         <HalPill mountedAt={mountedAt} />
-        <div className="mt-8 flex flex-col gap-0.5 font-mono uppercase tracking-[0.16em] text-[9px] text-white-faint leading-snug max-w-[240px]">
-          <span>H.A.L. 9000 · Urbana IL</span>
-          <span>Activation 1992.01.12</span>
-          <span>Heuristically programmed algorithmic computer</span>
-        </div>
       </div>
 
-      {/* ===== TOP-RIGHT ===== life support (ECLSS) */}
-      <div className="fixed top-hud-inset right-hud-inset z-20 pointer-events-none select-none w-[300px]">
+      {/* ===== TOP-RIGHT ===== life support */}
+      <div className="fixed top-hud-inset right-hud-inset z-20 pointer-events-none select-none w-[260px]">
         <SectionHead
           title="Life Support · ECLSS"
           right={<StatusDot state={lsState} haveAny={haveAny} />}
         />
 
-        {/* hero: ppCO2 — serif for variation */}
+        {/* serif hero: ppCO₂ */}
         <div className="flex items-baseline justify-end gap-2">
           <span className="font-mono uppercase tracking-[0.18em] text-[9px] text-white-dim">
             ppCO₂
           </span>
-          <span className="font-serif text-[44px] text-white tabular-nums leading-none">
+          <span className="font-serif text-[40px] text-white tabular-nums leading-none">
             {ppCo2 !== null ? ppCo2.toFixed(0) : "——"}
           </span>
           <span className="font-mono uppercase tracking-[0.12em] text-[10px] text-white-dim">
             ppm
           </span>
         </div>
-        <div className="mt-1 text-right font-mono uppercase tracking-[0.16em] text-[9px] text-white-faint">
-          Lab partial pressure · CO₂ scrub threshold 5300 ppm
+
+        {/* Lab vs Node 3 ppCO₂ */}
+        <div className="mt-2 flex justify-end">
+          <LineChart series={co2Series} width={260} height={44} />
         </div>
 
-        {/* Lab vs Node 3 ppCO₂ comparison */}
-        <div className="mt-3 flex justify-end">
-          <LineChart series={co2Series} width={300} height={60} />
-        </div>
-        <div className="mt-1 flex justify-between font-mono uppercase tracking-[0.16em] text-[8px] text-white-faint">
-          <span>— Lab ppCO₂</span>
-          <span>-- Node 3 ppCO₂</span>
-        </div>
-
-        {/* primary ECLSS rows */}
-        <div className="mt-4 flex flex-col gap-1.5">
+        <div className="mt-3 flex flex-col gap-1.5">
           <BarRow
-            label="Lab ppO₂"
+            label="ppO₂"
             value={formatPuiValue("USLAB000053", ppO2)}
             pct={ppO2 !== null ? (ppO2 - 18) / (23 - 18) : 0}
-          />
-          <BarRow
-            label="Node 3 ppO₂"
-            value={formatPuiValue("NODE3000001", nodeO2)}
-            pct={nodeO2 !== null ? (nodeO2 - 18) / (23 - 18) : 0}
           />
           <HudRow
             label="Cabin Press."
             value={formatPuiValue("USLAB000058", cabinKpa)}
           />
-          <div>
-            <div className="flex items-baseline gap-3">
-              <span className="font-mono uppercase tracking-[0.12em] text-[10px] text-white-dim">
-                Cabin Temp
-              </span>
-              <span className="font-mono uppercase tracking-[0.08em] text-xs text-white tabular-nums ml-auto">
-                {formatPuiValue("USLAB000059", cabinC)}
-              </span>
-            </div>
-            <Sparkline values={cabinTempHistory} width={300} height={16} showMarker />
-          </div>
-        </div>
-
-        {/* water + O2 gen */}
-        <div className="mt-3 pt-3 border-t border-white/10 flex flex-col gap-1.5">
-          <BarRow
-            label="Waste H₂O"
-            value={formatPuiValue("NODE3000008", wasteH2O)}
-            pct={wasteH2O !== null ? wasteH2O / 100 : 0}
-          />
-          <BarRow
-            label="Potable H₂O"
-            value={formatPuiValue("NODE3000009", potableH2O)}
-            pct={potableH2O !== null ? potableH2O / 100 : 0}
-          />
           <HudRow
-            label="O₂ Gen."
-            value={
-              o2Gen !== null
-                ? o2Gen > 0
-                  ? `ACTIVE ${o2Gen.toFixed(0)}`
-                  : "STANDBY"
-                : "——"
-            }
+            label="Cabin Temp"
+            value={formatPuiValue("USLAB000059", cabinC)}
           />
+          <Sparkline values={cabinTempHistory} width={260} height={14} showMarker />
         </div>
       </div>
 
-      {/* ===== BOTTOM-LEFT ===== attitude (ADCS) */}
-      <div className="fixed bottom-hud-inset left-hud-inset z-20 pointer-events-none select-none w-[260px]">
+      {/* ===== BOTTOM-LEFT ===== attitude */}
+      <div className="fixed bottom-hud-inset left-hud-inset z-20 pointer-events-none select-none w-[240px]">
         <SectionHead
           title="Attitude · ADCS"
           right={<StatusDot state={lsState} haveAny={haveAny} />}
@@ -310,34 +245,33 @@ export default function ExteriorHud() {
             roll={roll ?? 0}
             pitch={pitch ?? 0}
             yaw={yaw ?? 0}
-            size={96}
+            size={84}
           />
           <div className="flex flex-col flex-1 gap-2">
-            {/* serif hero: total attitude error magnitude */}
             <div>
-              <div className="font-mono uppercase tracking-[0.18em] text-[9px] text-white-dim">
+              <div className="font-mono uppercase tracking-[0.16em] text-[9px] text-white-dim">
                 Error Mag.
               </div>
-              <div className="font-serif text-[28px] text-white tabular-nums leading-none">
+              <div className="font-serif text-[26px] text-white tabular-nums leading-none">
                 {attitudeError !== null ? attitudeError.toFixed(2) : "——"}
                 <span className="font-mono text-[10px] text-white-dim ml-1">°</span>
               </div>
             </div>
-            <div className="font-mono uppercase tracking-[0.14em] text-[9px] text-white-faint leading-tight">
+            <div className="font-mono uppercase tracking-[0.12em] text-[9px] text-white-faint leading-tight">
               <div className="flex justify-between">
-                <span>ROLL</span>
+                <span>R</span>
                 <span className="text-white tabular-nums">
                   {roll !== null ? roll.toFixed(2) : "——"}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>PITCH</span>
+                <span>P</span>
                 <span className="text-white tabular-nums">
                   {pitch !== null ? pitch.toFixed(2) : "——"}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>YAW</span>
+                <span>Y</span>
                 <span className="text-white tabular-nums">
                   {yaw !== null ? yaw.toFixed(2) : "——"}
                 </span>
@@ -345,79 +279,45 @@ export default function ExteriorHud() {
             </div>
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-3">
+        <div className="mt-3">
           <RadialGauge
-            size={44}
+            size={40}
             pct={cmg !== null ? cmg / 100 : undefined}
             label="CMG Momentum"
             value={formatPuiValue("USLAB000010", cmg)}
           />
-          <div className="flex-1">
-            <Sparkline values={cmgHistory} width={140} height={20} showMarker grid />
-          </div>
-        </div>
-        <div className="mt-3 pt-2 border-t border-white/10">
-          <HudRow
-            label="Solar β"
-            value={formatPuiValue("USLAB000040", solarBeta)}
-          />
         </div>
       </div>
 
-      {/* ===== BOTTOM-RIGHT ===== mission time + power */}
-      <div className="fixed bottom-hud-inset right-hud-inset z-20 pointer-events-none select-none w-[300px] text-right">
+      {/* ===== BOTTOM-RIGHT ===== mission + power */}
+      <div className="fixed bottom-hud-inset right-hud-inset z-20 pointer-events-none select-none w-[260px] text-right">
         <SectionHead
-          title="Mission · Power · EPS"
+          title="Mission · Power"
           right={<StatusDot state={lsState} haveAny={haveAny} />}
         />
 
-        {/* serif hero clock */}
-        <div className="font-serif text-[48px] text-white tabular-nums leading-[0.9]">
+        <div className="font-serif text-[42px] text-white tabular-nums leading-[0.9]">
           {formatClock(now)}
         </div>
-        <div className="mt-1 font-mono uppercase tracking-[0.22em] text-[9px] text-white-dim">
+        <div className="mt-1 font-mono uppercase tracking-[0.2em] text-[9px] text-white-dim">
           GMT · MET {formatMet(now)}
         </div>
 
-        {/* power trend chart */}
-        <div className="mt-5 flex justify-end">
-          <LineChart series={powerSeries} width={300} height={44} />
-        </div>
-        <div className="mt-1 flex justify-between font-mono uppercase tracking-[0.16em] text-[8px] text-white-faint">
-          <span>— 1A current</span>
-          <span>-- 2A voltage</span>
+        <div className="mt-3">
+          <div className="flex items-baseline gap-3">
+            <span className="font-mono uppercase tracking-[0.12em] text-[10px] text-white-dim">
+              Array 1A Curr.
+            </span>
+            <span className="font-mono uppercase tracking-[0.08em] text-xs text-white tabular-nums ml-auto">
+              {formatPuiValue("S4000002", array1ACurr)}
+            </span>
+          </div>
+          <Sparkline values={array1History} width={260} height={14} showMarker />
         </div>
 
-        {/* power rows with individual sparklines */}
-        <div className="mt-3 flex flex-col gap-2">
-          <div>
-            <div className="flex items-baseline gap-3">
-              <span className="font-mono uppercase tracking-[0.12em] text-[10px] text-white-dim">
-                Array 1A Curr.
-              </span>
-              <span className="font-mono uppercase tracking-[0.08em] text-xs text-white tabular-nums ml-auto">
-                {formatPuiValue("S4000002", array1ACurr)}
-              </span>
-            </div>
-            <Sparkline values={array1History} width={300} height={14} showMarker />
-          </div>
-          <div>
-            <div className="flex items-baseline gap-3">
-              <span className="font-mono uppercase tracking-[0.12em] text-[10px] text-white-dim">
-                Array 2A Volt.
-              </span>
-              <span className="font-mono uppercase tracking-[0.08em] text-xs text-white tabular-nums ml-auto">
-                {formatPuiValue("P4000001", array2AVolt)}
-              </span>
-            </div>
-            <Sparkline values={array2History} width={300} height={14} showMarker />
-          </div>
-        </div>
-
-        {/* SARJ radial dial */}
-        <div className="mt-4 flex justify-end">
+        <div className="mt-3 flex justify-end">
           <RadialGauge
-            size={56}
+            size={48}
             angle={sarj ?? undefined}
             label="SARJ Stbd"
             value={formatPuiValue("S0000003", sarj)}
