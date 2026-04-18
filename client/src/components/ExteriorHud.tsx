@@ -27,13 +27,17 @@ function useSparklineHistory(
   puiId: PuiId,
 ): number[] {
   const [history, setHistory] = useState<number[]>([]);
-  const lastStamp = useRef<string | null>(null);
+  // Dedupe on receivedAt (performance.now() captured at push time — always
+  // monotonically increasing). Using the Lightstreamer TimeStamp field broke
+  // for PUIs that emit empty or repeating timestamps, and the values-map
+  // identity changes on every PUI push so the effect fires for all PUIs.
+  const lastReceivedAt = useRef<number>(-1);
 
   useEffect(() => {
     const entry = values[puiId];
     if (!entry) return;
-    if (entry.timestamp === lastStamp.current) return;
-    lastStamp.current = entry.timestamp;
+    if (entry.receivedAt <= lastReceivedAt.current) return;
+    lastReceivedAt.current = entry.receivedAt;
     const parsed = readPui(values, puiId);
     if (parsed === null) return;
     setHistory((prev) => {
