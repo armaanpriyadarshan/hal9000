@@ -21,7 +21,6 @@ Run:
     server/.venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port 8000
 """
 
-import json
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any
@@ -86,13 +85,13 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     dispatched = dispatch(function_calls)
     if function_calls:
         reply_text = dispatched.ack_text or "I am unable to comply with that request, Ethan."
-        state.messages.append({
-            "role": "assistant",
-            "content": _render_tool_call_history(function_calls, response_text),
-        })
     else:
         reply_text = response_text
-        state.messages.append({"role": "assistant", "content": reply_text})
+    # Store the spoken line as the assistant turn. For tool-using turns we
+    # store the ack rather than the raw <|tool_call_start|>...<|tool_call_end|>
+    # tokens — storing the tokens without a following tool-result message left
+    # a dangling exchange that confused Gemma on follow-up turns.
+    state.messages.append({"role": "assistant", "content": reply_text})
 
     return {
         "reply": reply_text,
@@ -101,23 +100,6 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         "client_directives": dispatched.client_directives,
         "failed_calls": dispatched.failed_calls,
     }
-
-
-def _render_tool_call_history(
-    function_calls: list[dict[str, Any]], response_text: str
-) -> str:
-    """Serialise tool calls in Cactus's on-wire format for conversation
-    history. See cactus/docs/cactus_engine.md:361 for the format."""
-    parts = []
-    for call in function_calls:
-        args = call.get("arguments") or {}
-        arg_str = ", ".join(f"{k}={json.dumps(v)}" for k, v in args.items())
-        parts.append(
-            f'<|tool_call_start|>{call.get("name", "")}({arg_str})<|tool_call_end|>'
-        )
-    if response_text:
-        parts.append(response_text)
-    return "".join(parts)
 
 
 @asynccontextmanager
