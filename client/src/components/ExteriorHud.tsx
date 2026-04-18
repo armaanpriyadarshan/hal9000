@@ -155,11 +155,16 @@ export default function ExteriorHud() {
   const yaw = readPui(lsValues, "USLAB000024");
   const sarj = readPui(lsValues, "S0000003");
   const array1ACurr = readPui(lsValues, "S4000002");
+  const array2AVolt = readPui(lsValues, "P4000001");
+  const solarBeta = readPui(lsValues, "USLAB000040");
+  const wasteH2O = readPui(lsValues, "NODE3000008");
+  const potableH2O = readPui(lsValues, "NODE3000009");
 
   const cabinTempHistory = useSparklineHistory(lsValues, "USLAB000059");
   const ppCo2History = useSparklineHistory(lsValues, "USLAB000055");
   const nodeCo2History = useSparklineHistory(lsValues, "NODE3000003");
   const array1History = useSparklineHistory(lsValues, "S4000002");
+  const array2History = useSparklineHistory(lsValues, "P4000001");
 
   // Total attitude error magnitude (sqrt of sum of squares).
   const attitudeError =
@@ -232,6 +237,19 @@ export default function ExteriorHud() {
           />
           <Sparkline values={cabinTempHistory} width={260} height={14} showMarker />
         </div>
+
+        <div className="mt-3 pt-2 border-t border-white/10 flex flex-col gap-1.5">
+          <BarRow
+            label="Waste H₂O"
+            value={formatPuiValue("NODE3000008", wasteH2O)}
+            pct={wasteH2O !== null ? wasteH2O / 100 : 0}
+          />
+          <BarRow
+            label="Potable H₂O"
+            value={formatPuiValue("NODE3000009", potableH2O)}
+            pct={potableH2O !== null ? potableH2O / 100 : 0}
+          />
+        </div>
       </div>
 
       {/* ===== BOTTOM-LEFT ===== attitude */}
@@ -287,6 +305,12 @@ export default function ExteriorHud() {
             value={formatPuiValue("USLAB000010", cmg)}
           />
         </div>
+        <div className="mt-2 pt-2 border-t border-white/10">
+          <HudRow
+            label="Solar β"
+            value={formatPuiValue("USLAB000040", solarBeta)}
+          />
+        </div>
       </div>
 
       {/* ===== BOTTOM-RIGHT ===== mission + power */}
@@ -313,6 +337,18 @@ export default function ExteriorHud() {
             </span>
           </div>
           <Sparkline values={array1History} width={260} height={14} showMarker />
+        </div>
+
+        <div className="mt-2">
+          <div className="flex items-baseline gap-3">
+            <span className="font-mono uppercase tracking-[0.12em] text-[10px] text-white-dim">
+              Array 2A Volt.
+            </span>
+            <span className="font-mono uppercase tracking-[0.08em] text-xs text-white tabular-nums ml-auto">
+              {formatPuiValue("P4000001", array2AVolt)}
+            </span>
+          </div>
+          <Sparkline values={array2History} width={260} height={14} showMarker />
         </div>
 
         <div className="mt-3 flex justify-end">
