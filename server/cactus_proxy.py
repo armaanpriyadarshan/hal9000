@@ -16,10 +16,22 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import struct
 from typing import Any
 
 import httpx
+
+
+# Matches a trailing JSON array of tool-call objects on its own line(s)
+# after the visible reply. Flash-lite sometimes emits prose THEN the
+# tool-call JSON, violating the strict output contract — without this
+# we'd speak the JSON out loud. Non-greedy inner match, array-closes-
+# at-end-of-string anchor.
+_TRAILING_TOOL_CALL_RE = re.compile(
+    r"\s*(\[\s*\{[^\[\]]*\"name\"[^\[\]]*\}\s*(?:,\s*\{[^\[\]]*\}\s*)*\])\s*\Z",
+    re.DOTALL,
+)
 
 
 # Mirrors cactus_cloud.cpp's defaults so behaviour matches when no env
@@ -161,12 +173,18 @@ def complete(
             except json.JSONDecodeError:
                 continue
 
-    # If no structured function_calls but the response text is a bare
-    # JSON array with `"name"` in it, treat that as the tool call
-    # payload. Matches cactus_cloud.cpp:431-442.
+    # If no structured function_calls, look for an inline tool-call
+    # JSON array in the text. Two cases:
+    #   1. Whole response IS a bare array (matches cactus_cloud.cpp:431-442)
+    #   2. Prose then trailing array (flash-lite violates the output
+    #      contract and does this — without handling it, HAL TTS would
+    #      speak the JSON out loud)
     if not function_calls and response_text:
         stripped = response_text.strip()
-        if stripped.startswith("[") and stripped.endswith("]") and "\"name\"" in stripped:
+        bare_array = (
+            stripped.startswith("[") and stripped.endswith("]") and '"name"' in stripped
+        )
+        if bare_array:
             try:
                 maybe_calls = json.loads(stripped)
                 if isinstance(maybe_calls, list) and all(isinstance(c, dict) for c in maybe_calls):
@@ -174,6 +192,16 @@ def complete(
                     response_text = ""
             except json.JSONDecodeError:
                 pass
+        else:
+            m = _TRAILING_TOOL_CALL_RE.search(response_text)
+            if m:
+                try:
+                    maybe_calls = json.loads(m.group(1))
+                    if isinstance(maybe_calls, list) and all(isinstance(c, dict) for c in maybe_calls):
+                        function_calls = maybe_calls
+                        response_text = response_text[: m.start()].rstrip()
+                except json.JSONDecodeError:
+                    pass
 
     if not response_text and not function_calls:
         return {"ok": False, "response": "", "function_calls": [], "error": "missing_text"}
