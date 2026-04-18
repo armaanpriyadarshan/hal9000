@@ -33,7 +33,9 @@ from pydantic import BaseModel
 
 from cactus_runtime import CactusSession
 
+import cactus_proxy
 from config import (
+    CLOUD_FIRST,
     COMPLETION_OPTIONS,
     CORPUS_DIR,
     EMBED_MODEL,
@@ -109,17 +111,6 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     turn_no = len([m for m in state.messages if m["role"] == "user"])
     t_turn_start = time.perf_counter()
 
-    # Clear KV cache between voice turns. Cactus/Gemma-4 back-to-back
-    # audio turns silently produce empty completions when prior-turn
-    # audio tokens linger in cache. Empirically still true on the
-    # a875fc3f source build (post-v1.14, PR #588 applied) — turn 2+
-    # returned empty without this reset. The cost is a full re-prefill
-    # of [system + tools] each turn (~20 s on M2 Air CPU) because smart
-    # prompt caching can't kick in without the KV persisting across turns.
-    # Will revisit when Cactus ships either a voice-turn cache fix or
-    # the Gemma-4 LLM model.mlpackage (ANE-accelerated prefill).
-    state.llm.reset()
-
     t_rag_start = time.perf_counter()
     msgs = messages_with_context(query_text)
     t_rag_end = time.perf_counter()
@@ -132,17 +123,60 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         flush=True,
     )
 
+    # Cloud-first routing: when CLOUD_FIRST is on we hit the Cactus
+    # proxy first and only invoke the local model if that call fails
+    # (timeout / network / http error). This differs from Cactus's own
+    # auto_handoff, which always runs both in parallel. Cloud-first is
+    # cheaper when network is up; falls back cleanly when it isn't.
+    source = "local"
+    response_text = ""
+    function_calls: list = []
+    cloud_error: str | None = None
     t_llm_start = time.perf_counter()
-    result = state.llm.complete(
-        msgs,
-        pcm_data=pcm_data,
-        options=COMPLETION_OPTIONS,
-        tools=cactus_tools_json(),
-    )
-    t_llm_end = time.perf_counter()
+    ttft_ms: float | None = None
 
-    response_text = (result.get("response", "") or "").strip()
-    function_calls = result.get("function_calls") or []
+    if CLOUD_FIRST:
+        cloud = cactus_proxy.complete(
+            msgs,
+            tools=cactus_tools_json(),
+            pcm_data=pcm_data,
+        )
+        if cloud["ok"]:
+            response_text = cloud["response"]
+            function_calls = cloud["function_calls"]
+            source = "cloud"
+        else:
+            cloud_error = cloud["error"]
+            print(
+                f"[turn {turn_no}] cloud failed ({cloud_error}); falling back to local",
+                flush=True,
+            )
+
+    if not CLOUD_FIRST or cloud_error is not None:
+        # Clear KV cache before every local call. Cactus's Gemma-4
+        # audio-decode path (model_gemma4_mm.cpp:decode_multimodal)
+        # silently returns empty on back-to-back voice turns when
+        # prior-turn audio tokens linger in the cache. Reset is also
+        # safest in CLOUD_FIRST fallbacks since the cache may hold
+        # partial state from an earlier successful cloud turn that
+        # never flushed it (we don't inject assistant replies back
+        # into the local KV).
+        state.llm.reset()
+        result = state.llm.complete(
+            msgs,
+            pcm_data=pcm_data,
+            options=COMPLETION_OPTIONS,
+            tools=cactus_tools_json(),
+        )
+        response_text = (result.get("response", "") or "").strip()
+        function_calls = result.get("function_calls") or []
+        # If Cactus's native auto_handoff was enabled and picked cloud,
+        # surface that. Harmless no-op when auto_handoff is False.
+        if result.get("cloud_handoff"):
+            source = "cloud"
+        ttft_ms = getattr(state.llm, "last_ttft_ms", None)
+
+    t_llm_end = time.perf_counter()
 
     # Fallback: Gemma occasionally emits tool calls as plain text
     # (e.g. `highlight_part(part="solar_arrays")`) instead of the
@@ -166,11 +200,6 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     )
 
     dispatched = dispatch(function_calls)
-    # Cactus sets cloud_handoff=true in the response JSON when its
-    # internal auto_handoff swapped the local reply for a cloud reply
-    # (cactus_complete.cpp:949). Surface it as a `source` field so the
-    # client/log can tell which path answered.
-    source = "cloud" if result.get("cloud_handoff") else "local"
 
     if function_calls:
         reply_text = dispatched.ack_text or "I am unable to comply with that request, Ethan."
@@ -193,7 +222,9 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         f"[turn {turn_no}] spoken={reply_text!r} failed={dispatched.failed_calls}",
         flush=True,
     )
-    ttft_ms = getattr(state.llm, "last_ttft_ms", None)
+    # ttft_ms only exists when the local path ran (cactus_runtime fills
+    # it via the token callback). Cloud-first turns that succeed have no
+    # ttft — they're one blocking HTTP round-trip, no streaming.
     ttft_str = f"{int(ttft_ms)}ms" if ttft_ms is not None else "n/a"
     decode_ms = (
         int((t_llm_end - t_llm_start) * 1000 - ttft_ms)

@@ -319,25 +319,25 @@ path used by text turns. Back-to-back voice turns without reset
 produce empty completions because the new audio's embeddings never
 get applied to the cached KV.
 
-### Hybrid cloud fallback (optional)
+### Hybrid routing: cloud-first with local fallback
 
-Cactus's built-in `auto_handoff` fires a parallel cloud request during
-local decode whenever the local model's rolling confidence (1 − first-
-token entropy, `cactus_complete.cpp:781`) drops below
-`confidence_threshold` (default 0.7). If the cloud reply arrives within
-`cloud_timeout_ms` (default 15000), it replaces the local reply; else
-the local reply wins.
+Set `CLOUD_FIRST=true` in `server/.env` to enable cloud-first mode:
+every turn hits the Cactus proxy first and only runs the local model
+if the cloud call fails (timeout, network, http error). This matches
+the mission scenario — cloud when connected, on-device only when the
+link is down. Set `CLOUD_FIRST=false` (or omit) to run pure local.
 
-The cloud path uses Cactus's own proxy at `https://104.198.76.3/api/v1`,
-which routes to a Gemini model based on the `CACTUS_CLOUD_MODEL` env
-var. Default: `gemini-3.1-flash-lite-preview` (~1 s roundtrip).
-Alternatives we've verified work: `gemini-3.1-pro-preview` (flagship,
-~2 s), `gemini-2.5-flash-lite` (~0.4 s). Swap by editing `server/.env`.
+Transport is `server/cactus_proxy.py` → Cactus's proxy at
+`https://104.198.76.3/api/v1` (`/text` for text, `/omni` for audio),
+which routes to a Gemini model chosen by `CACTUS_CLOUD_MODEL`.
+Default: `gemini-3.1-flash-lite-preview` (~1 s roundtrip). Alternatives
+we've verified work: `gemini-3.1-pro-preview` (flagship, ~2 s),
+`gemini-2.5-flash-lite` (~0.4 s). Swap by editing `server/.env`.
 
 Auth is a `CACTUS_CLOUD_KEY` issued by Cactus-Compute (`cactus auth` in
-their CLI). Flip `auto_handoff: False` in `server/config.py`'s
-`COMPLETION_OPTIONS` to disable entirely. Voice turns stay local — the
-proxy doesn't receive PCM.
+their CLI). The C engine's own `auto_handoff` is off — Python does the
+routing so we can skip local entirely when cloud succeeds instead of
+racing both to completion.
 
 ### Troubleshooting
 

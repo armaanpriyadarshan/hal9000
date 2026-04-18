@@ -68,15 +68,21 @@ class CactusSession:
         tools: list[dict[str, Any]] | None = None,
         pcm_data: bytes | None = None,
     ) -> dict[str, Any]:
-        # Use the token callback to capture time-to-first-token; anything
-        # past the first token is pure decode. Stashed on the session so
-        # run_turn can read it without a new return-value shape.
+        # Token callback does two things:
+        # 1. Capture time-to-first-token (stashed on the session so
+        #    run_turn can read it without reshaping the return value).
+        # 2. Stream each decoded token to stdout so the uvicorn log
+        #    shows the local generation live. Cloud handoff replies
+        #    don't flow through this callback — they arrive whole
+        #    from the Cactus proxy.
         self.last_ttft_ms: float | None = None
         _t_start = time.perf_counter()
+        print("  [local stream] ", end="", flush=True)
 
         def _on_token(_token: str, _token_id: int) -> None:
             if self.last_ttft_ms is None:
                 self.last_ttft_ms = (time.perf_counter() - _t_start) * 1000.0
+            print(_token, end="", flush=True)
 
         raw = cactus_complete(
             self.handle,
@@ -86,6 +92,7 @@ class CactusSession:
             _on_token,
             pcm_data,
         )
+        print("", flush=True)  # terminate the [local stream] line
         try:
             return json.loads(raw)
         except json.JSONDecodeError:

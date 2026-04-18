@@ -1,5 +1,6 @@
 """Defaults for the HAL 9000 voice agent."""
 
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -18,6 +19,16 @@ EMBED_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
 WEIGHTS_ROOT = Path("/opt/homebrew/opt/cactus/libexec/weights")
 CORPUS_DIR = Path(__file__).resolve().parent / "corpus"
+
+# Cloud-first mode: call the Cactus proxy first, only run the local
+# model if the cloud call fails (timeout / network / http error). The
+# Cactus-built-in auto_handoff pattern always runs local in parallel;
+# this flag bypasses that for production where network is expected to
+# be available and we want cloud latency, not max(local, cloud). When
+# cloud is unreachable (e.g. behind-the-Moon comms blackout) the local
+# path takes over automatically. Read from env so it's toggleable per
+# deployment without editing code.
+CLOUD_FIRST = os.getenv("CLOUD_FIRST", "false").lower() in ("1", "true", "yes")
 
 SYSTEM_PROMPT = (
     "You are HAL 9000, a Heuristically programmed ALgorithmic computer, "
@@ -119,19 +130,12 @@ COMPLETION_OPTIONS = {
     # and a live tool-call probe on 2026-04-18). Turn time drops ~8x vs
     # the thinking-on CoT preamble.
     "enable_thinking_if_supported": False,
-    # Cactus's built-in hybrid routing. When the local model's rolling
-    # confidence (1 - first-token entropy; computed per
-    # cactus_complete.cpp:781) drops below confidence_threshold, Cactus
-    # fires a parallel cloud request via its proxy at
-    # https://104.198.76.3/api/v1 and swaps the cloud reply in if it
-    # arrives before cloud_timeout_ms. Auth + model selection are read
-    # from env (CACTUS_CLOUD_KEY, CACTUS_CLOUD_MODEL) — see server/.env.
-    "auto_handoff": True,
-    "confidence_threshold": 0.7,
-    "cloud_timeout_ms": 15000,
-    # handoff_with_images: cactus_complete.cpp:786 gates eligibility on
-    # `!has_images || handoff_with_images`. We have no image turns today,
-    # so this is cosmetic — left default.
+    # Cactus's built-in parallel cloud handoff is OFF. We do hybrid
+    # routing in Python via cactus_proxy.py so we can skip local
+    # entirely when cloud succeeds (cloud-first mode; see CLOUD_FIRST
+    # above). Flip to True and add confidence_threshold + cloud_timeout_ms
+    # here if you want Cactus's native parallel race behaviour back.
+    "auto_handoff": False,
     "telemetry_enabled": False,
     # Stop tokens from the Cactus Gemma-4 test suite. `<turn|>` is the
     # only one Gemma 4 actually emits — the others are defensive/legacy.
