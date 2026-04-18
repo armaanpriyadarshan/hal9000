@@ -63,10 +63,12 @@ SYSTEM_PROMPT = (
 
 COMPLETION_OPTIONS = {
     "max_tokens": 1500,
-    # Disabled: Gemma 4's chain-of-thought preamble occasionally leaks into
-    # the `response` field rather than the `thinking` field, and then gets
-    # synthesised as HAL's spoken reply. Cactus doesn't cleanly split the
-    # thinking tokens for this model on every path. Revisit when the FFI
-    # gets a reliable thinking/reply split for Gemma 4.
-    "enable_thinking_if_supported": False,
+    # Needed for tool-calling: Gemma 4 only emits the <|tool_call_start|>...
+    # token format Cactus parses when its chain-of-thought path is active.
+    # With thinking off, it emits tool calls as plain prose that Cactus
+    # doesn't recognise, so function_calls comes back empty.
+    # The thinking preamble sometimes leaks into the `response` field
+    # rather than the separate `thinking` field; run_turn cleans it up
+    # before TTS (see _clean_response in server.py).
+    "enable_thinking_if_supported": True,
 }

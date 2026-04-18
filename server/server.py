@@ -21,6 +21,7 @@ Run:
     server/.venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port 8000
 """
 
+import re
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any
@@ -41,6 +42,27 @@ from config import (
 from rag import EmbedRagIndex, build_context_block
 from tools import cactus_tools_json, dispatch
 from tts import synth_wav_base64, synth_wav_bytes
+
+
+_CHANNEL_MARKER_RE = re.compile(r"<\|channel\|?>[^\n]*\n")
+
+
+def _clean_response(text: str) -> str:
+    """Strip Gemma 4 channel-marker preambles from `response`.
+
+    Gemma 4's chain-of-thought emits tokens like `<|channel|>thought\\n...`
+    (thinking) followed by `<|channel|>final\\n...` (reply). Cactus is
+    supposed to split these into separate `thinking` and `response` fields,
+    but on some paths the whole thing ends up in `response`. We keep only
+    the text after the LAST channel marker (the final reply), which is
+    empty if the model never produced a non-thinking reply.
+    """
+    if not text:
+        return text
+    markers = list(_CHANNEL_MARKER_RE.finditer(text))
+    if markers:
+        text = text[markers[-1].end():]
+    return text.strip()
 
 
 class AppState:
@@ -89,7 +111,7 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         options=COMPLETION_OPTIONS,
         tools=cactus_tools_json(),
     )
-    response_text = result.get("response", "") or ""
+    response_text = _clean_response(result.get("response", "") or "")
     thinking = result.get("thinking", "") or ""
     function_calls = result.get("function_calls") or []
     print(
@@ -101,7 +123,7 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     if function_calls:
         reply_text = dispatched.ack_text or "I am unable to comply with that request, Ethan."
     else:
-        reply_text = response_text
+        reply_text = response_text or "I am unable to comply with that request, Ethan."
     # Store the spoken line as the assistant turn. For tool-using turns we
     # store the ack rather than the raw <|tool_call_start|>...<|tool_call_end|>
     # tokens — storing the tokens without a following tool-result message left
