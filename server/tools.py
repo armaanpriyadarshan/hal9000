@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, TypedDict
 
+from jsonschema import Draft202012Validator, ValidationError
+
 
 Location = Literal["server", "client"]
 
@@ -34,6 +36,13 @@ class FailedCall(TypedDict):
     name: str
     arguments: dict[str, Any]
     reason: str
+
+
+@dataclass
+class DispatchResult:
+    ack_text: str = ""
+    client_directives: list[ClientDirective] = field(default_factory=list)
+    failed_calls: list[FailedCall] = field(default_factory=list)
 
 
 TOOL_SPECS: list[ToolSpec] = [
@@ -74,3 +83,62 @@ def cactus_tools_json() -> list[dict[str, Any]]:
         }
         for spec in TOOL_SPECS
     ]
+
+
+_SPECS_BY_NAME = {spec.name: spec for spec in TOOL_SPECS}
+
+_GENERIC_ERROR = "I am unable to comply with that request, Ethan."
+
+
+def dispatch(function_calls: Any) -> DispatchResult:
+    """Validate + dispatch Cactus-emitted function_calls.
+
+    Returns a DispatchResult with ack_text (for TTS), client_directives
+    (for the browser), and failed_calls (for debug). Malformed payloads
+    are treated as no-ops.
+    """
+    result = DispatchResult()
+    if not isinstance(function_calls, list):
+        return result
+    for call in function_calls:
+        if not isinstance(call, dict) or "name" not in call:
+            continue
+        name = call["name"]
+        args = call.get("arguments") or {}
+        spec = _SPECS_BY_NAME.get(name)
+        if spec is None:
+            result.failed_calls.append(
+                {"name": name, "arguments": args, "reason": "unknown tool"}
+            )
+            continue
+        try:
+            Draft202012Validator(spec.parameters).validate(args)
+        except ValidationError as e:
+            result.failed_calls.append(
+                {"name": name, "arguments": args, "reason": e.message}
+            )
+            continue
+        if spec.location == "server" and spec.handler is not None:
+            try:
+                spec.handler(args)
+            except Exception as e:  # noqa: BLE001
+                result.failed_calls.append(
+                    {"name": name, "arguments": args, "reason": f"handler error: {e}"}
+                )
+                continue
+        else:
+            result.client_directives.append({"name": name, "arguments": args})
+        result.ack_text = _append(result.ack_text, spec.ack_template.format(**args))
+    if result.failed_calls:
+        n = len(result.failed_calls)
+        if result.ack_text:
+            noun = "request" if n == 1 else "requests"
+            suffix = f"I was unable to comply with {n} other {noun}."
+            result.ack_text = _append(result.ack_text, suffix)
+        else:
+            result.ack_text = _GENERIC_ERROR
+    return result
+
+
+def _append(acc: str, sentence: str) -> str:
+    return sentence if not acc else f"{acc} {sentence}"
