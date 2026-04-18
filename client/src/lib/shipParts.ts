@@ -26,6 +26,8 @@ export type Match =
 
 export type PartEntry = {
   displayName: string;
+  kind: string;
+  description: string;
   match: Match;
   cameraOffset: [number, number, number];
   cameraDistanceScale?: number;
@@ -34,42 +36,63 @@ export type PartEntry = {
 export const SHIP_PARTS: Record<CanonicalPart, PartEntry> = {
   solar_arrays: {
     displayName: "Solar Arrays",
+    kind: "Power Generation",
+    description:
+      "Eight deployable wings. ~75–90 kW average electrical output; peak ~120 kW in direct sun.",
     match: { kind: "parent", values: ["PAINEIS"] },
     cameraOffset: [1, 0.2, 1],
     cameraDistanceScale: 1.8,
   },
   service_module: {
-    displayName: "Zvezda Service Module",
+    displayName: "Zvezda",
+    kind: "Service Module",
+    description:
+      "Russian core module. Primary crew quarters and life-support hub. Habitable since 2000.",
     match: { kind: "prefix", values: ["sm_ext_sm"] },
     cameraOffset: [1, 0.2, 1],
     cameraDistanceScale: 1.8,
   },
   p6_truss: {
     displayName: "P6 Truss",
+    kind: "Port-Outboard Truss",
+    description:
+      "Outermost port truss segment. Carries 2A/4B solar array wings and their thermal radiator.",
     match: { kind: "prefix", values: ["p6_ani"] },
     cameraOffset: [1, 0.2, 1],
     cameraDistanceScale: 1.8,
   },
   s0_truss: {
     displayName: "S0 Truss",
+    kind: "Center Truss",
+    description:
+      "Structural backbone. Anchors the station's module stack and carries the mobile base rails.",
     match: { kind: "prefix", values: ["s0_ani"] },
     cameraOffset: [1, 0.2, 1],
     cameraDistanceScale: 1.8,
   },
   external_stowage: {
-    displayName: "External Stowage Platforms",
+    displayName: "External Stowage",
+    kind: "ESP-2 / ESP-3",
+    description:
+      "External platforms holding orbital-replacement units — spare tanks, batteries, and pumps.",
     match: { kind: "prefix", values: ["esp2_lo", "ESP3"] },
     cameraOffset: [1, 0.2, 1],
     cameraDistanceScale: 1.8,
   },
   ams_experiment: {
-    displayName: "AMS-2 Experiment",
+    displayName: "AMS-2",
+    kind: "Alpha Magnetic Spectrometer",
+    description:
+      "Cosmic-ray detector mounted on the S3 truss. Studies dark matter and antimatter; online since 2011.",
     match: { kind: "prefix", values: ["AMS2"] },
     cameraOffset: [1, 0.2, 1],
     cameraDistanceScale: 1.8,
   },
   main_modules: {
     displayName: "Main Modules",
+    kind: "Pressurised Cluster",
+    description:
+      "Primary habitable stack — Destiny, Unity, Harmony, Columbus, Kibo. Crew work and sleep spaces.",
     match: { kind: "parent", values: ["MODULO1", "MODULO2"] },
     cameraOffset: [1, 0.2, 1],
     cameraDistanceScale: 1.8,

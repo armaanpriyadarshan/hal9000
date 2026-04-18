@@ -3,10 +3,9 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, OrbitControls, Stars, useGLTF } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { BracketFrame } from "@/components/BracketFrame";
 
 import {
   SHIP_PARTS,
@@ -117,6 +116,7 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
   const { scene } = useGLTF("/iss-exterior.glb");
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls) as OrbitControlsLike | null;
+  const router = useRouter();
 
   const defaultMat = useMemo(() => makeMaterial(false), []);
   const highlightedMat = useMemo(() => makeMaterial(true), []);
@@ -251,13 +251,28 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
         <Html
           position={[boxCenter.x, boxCenter.y, boxCenter.z]}
           center
-          distanceFactor={8}
+          distanceFactor={5}
+          zIndexRange={[100, 0]}
         >
-          <BracketFrame className="relative px-3 py-1.5 pointer-events-none">
-            <div className="font-mono uppercase tracking-[0.15em] text-white text-xs whitespace-nowrap">
+          <div className="relative bg-black border-[0.5px] border-white/50 px-3 py-2 w-[220px] pointer-events-none">
+            <button
+              type="button"
+              onClick={() => router.push("/exterior")}
+              className="pointer-events-auto absolute top-1 right-1.5 font-mono text-[14px] leading-none text-white-dim hover:text-white"
+              aria-label="Clear highlight"
+            >
+              ×
+            </button>
+            <div className="font-mono uppercase tracking-[0.18em] text-[8px] text-white-dim pr-4">
+              {SHIP_PARTS[highlight].kind}
+            </div>
+            <div className="font-serif text-[18px] leading-tight text-white mt-0.5 pr-4">
               {SHIP_PARTS[highlight].displayName}
             </div>
-          </BracketFrame>
+            <div className="mt-1.5 font-mono text-[9px] leading-snug text-white-dim">
+              {SHIP_PARTS[highlight].description}
+            </div>
+          </div>
         </Html>
       )}
     </>
