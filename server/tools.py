@@ -76,6 +76,44 @@ TOOL_SPECS: list[ToolSpec] = [
         location="client",
         ack_template="Bringing up the {view} view.",
     ),
+    ToolSpec(
+        name="highlight_part",
+        description=(
+            "Highlight a labeled section of the station on the exterior "
+            "view. Auto-switches to the exterior if the crew is currently "
+            "inside, so you do NOT need to call set_view first. The crew "
+            "may refer to parts using natural language — map their wording "
+            "to one of the canonical names below:\n"
+            "- solar_arrays — solar arrays, solar panels, wings, arrays\n"
+            "- service_module — Zvezda, service module, Russian segment\n"
+            "- p6_truss — P6 truss, port truss, far port, port-end truss\n"
+            "- s0_truss — S0 truss, center truss, backbone, central truss\n"
+            "- external_stowage — ESP, external stowage, stowage platforms\n"
+            "- ams_experiment — AMS, AMS-2, magnetic spectrometer, physics experiment\n"
+            "- main_modules — main modules, pressurised modules, habitation"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "part": {
+                    "type": "string",
+                    "enum": [
+                        "solar_arrays",
+                        "service_module",
+                        "p6_truss",
+                        "s0_truss",
+                        "external_stowage",
+                        "ams_experiment",
+                        "main_modules",
+                    ],
+                    "description": "Canonical name of the part to highlight.",
+                },
+            },
+            "required": ["part"],
+        },
+        location="client",
+        ack_template="Highlighting the {part}.",
+    ),
 ]
 
 

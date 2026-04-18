@@ -108,3 +108,30 @@ def test_dispatch_entry_without_name_is_skipped():
     assert result.ack_text == ""
     assert result.client_directives == []
     assert result.failed_calls == []
+
+
+EXPECTED_HIGHLIGHT_PART_ENUM = [
+    "solar_arrays",
+    "service_module",
+    "p6_truss",
+    "s0_truss",
+    "external_stowage",
+    "ams_experiment",
+    "main_modules",
+]
+
+
+def test_highlight_part_is_registered():
+    spec = next((s for s in TOOL_SPECS if s.name == "highlight_part"), None)
+    assert spec is not None, "highlight_part missing from TOOL_SPECS"
+    assert spec.location == "client"
+    assert spec.parameters["required"] == ["part"]
+    enum = spec.parameters["properties"]["part"]["enum"]
+    assert list(enum) == EXPECTED_HIGHLIGHT_PART_ENUM
+
+
+def test_highlight_part_description_covers_every_canonical_name():
+    spec = next((s for s in TOOL_SPECS if s.name == "highlight_part"), None)
+    assert spec is not None
+    for name in EXPECTED_HIGHLIGHT_PART_ENUM:
+        assert name in spec.description, f"canonical name {name!r} missing from description"
