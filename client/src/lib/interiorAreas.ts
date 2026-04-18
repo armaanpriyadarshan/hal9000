@@ -74,7 +74,7 @@ export const INTERIOR_AREAS: Record<CanonicalArea, AreaEntry> = {
     kind: "US Laboratory",
     description:
       "Primary US research module. Hosts the main station command workstation and most US scientific racks.",
-    glbNodeName: "US_Lab.CenterOfNodeForRoulette",
+    glbNodeName: "US_LabCenterOfNodeForRoulette",
   },
   columbus: {
     displayName: "Columbus",
@@ -123,19 +123,23 @@ export const ADJACENCY: Record<CanonicalArea, CanonicalArea[]> = {
  * Directional hatch-node name hint for each adjacency edge.
  *
  * Lookup is undirected — if "A→B" is missing, try "B→A". Values are
- * glb node names dumped from iss-interior.glb; if a hint is wrong the
- * flight falls back to the midpoint of the two module bounding-box
- * centres (see ISSInteriorScene).
+ * glb node names dumped from iss-interior.glb, with dots stripped:
+ * three.js's GLTFLoader runs PropertyBinding.sanitizeNodeName on every
+ * node name and removes "." (and other reserved chars) entirely, so
+ * "Node1_Int_Hub.FWD" in the glb resolves as "Node1_Int_HubFWD" on the
+ * loaded scene. If a hint is wrong the flight falls back to the
+ * midpoint of the two module bounding-box centres (see
+ * ISSInteriorScene).
  */
 export const HATCH_HINT: Record<string, string> = {
-  "unity→destiny":       "Node1_Int_Hub.FWD",
-  "unity→tranquility":   "Node1_Int_Hub.PRT",
-  "unity→airlock":       "Node1_Int_Hub.SBD",
-  "tranquility→cupola":  "Node3_Int_Hub.NDR",
-  "tranquility→pmm":     "Node3_Int_Hub.FWD",
-  "destiny→harmony":     "Node2_Int_Hub.AFT",
-  "harmony→columbus":    "Node2_Int_Hub.SBD",
-  "harmony→kibo_jpm":    "Node2_Int_Hub.PRT",
+  "unity→destiny":       "Node1_Int_HubFWD",
+  "unity→tranquility":   "Node1_Int_HubPRT",
+  "unity→airlock":       "Node1_Int_HubSBD",
+  "tranquility→cupola":  "Node3_Int_HubNDR",
+  "tranquility→pmm":     "Node3_Int_HubFWD",
+  "destiny→harmony":     "Node2_Int_HubAFT",
+  "harmony→columbus":    "Node2_Int_HubSBD",
+  "harmony→kibo_jpm":    "Node2_Int_HubPRT",
   "kibo_jpm→kibo_jlp":   "JLP_Metal_Hatch_Nadir",
 };
 
