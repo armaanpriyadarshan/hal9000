@@ -20,10 +20,10 @@ export function BracketFrame({
 }) {
   return (
     <div className={`bg-black ${className}`}>
-      <span className="absolute -top-px -left-px h-2 w-2 border-t border-l border-white" />
-      <span className="absolute -top-px -right-px h-2 w-2 border-t border-r border-white" />
-      <span className="absolute -bottom-px -left-px h-2 w-2 border-b border-l border-white" />
-      <span className="absolute -bottom-px -right-px h-2 w-2 border-b border-r border-white" />
+      <span className="absolute -top-px -left-px h-2 w-2 border-t-[0.5px] border-l-[0.5px] border-white" />
+      <span className="absolute -top-px -right-px h-2 w-2 border-t-[0.5px] border-r-[0.5px] border-white" />
+      <span className="absolute -bottom-px -left-px h-2 w-2 border-b-[0.5px] border-l-[0.5px] border-white" />
+      <span className="absolute -bottom-px -right-px h-2 w-2 border-b-[0.5px] border-r-[0.5px] border-white" />
       {children}
     </div>
   );
