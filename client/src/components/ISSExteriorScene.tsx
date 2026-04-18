@@ -253,7 +253,7 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
           center
           distanceFactor={8}
         >
-          <BracketFrame className="px-3 py-1.5 pointer-events-none">
+          <BracketFrame className="relative px-3 py-1.5 pointer-events-none">
             <div className="font-mono uppercase tracking-[0.15em] text-white text-xs whitespace-nowrap">
               {SHIP_PARTS[highlight].displayName}
             </div>

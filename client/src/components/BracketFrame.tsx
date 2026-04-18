@@ -3,7 +3,13 @@ import type { ReactNode } from "react";
 /**
  * Black panel with four L-shaped white corner brackets (no continuous
  * border). Used by the part caption and the exterior HUD corners.
- * Consumers control padding/layout via className.
+ *
+ * Consumers MUST supply a positioning class (`relative`, `fixed`, or
+ * `absolute`) in `className` — the corner spans are absolutely positioned
+ * and need a containing block. We don't bake `relative` in here because
+ * Tailwind v4's CSS emits utilities alphabetically; when a consumer also
+ * applies `fixed`, the baked-in `relative` wins the cascade and breaks
+ * fixed positioning.
  */
 export function BracketFrame({
   children,
@@ -13,7 +19,7 @@ export function BracketFrame({
   className?: string;
 }) {
   return (
-    <div className={`relative bg-black ${className}`}>
+    <div className={`bg-black ${className}`}>
       <span className="absolute -top-px -left-px h-2 w-2 border-t border-l border-white" />
       <span className="absolute -top-px -right-px h-2 w-2 border-t border-r border-white" />
       <span className="absolute -bottom-px -left-px h-2 w-2 border-b border-l border-white" />
