@@ -16,20 +16,14 @@ import {
 } from "@/lib/interiorAreas";
 
 const CAMERA_POSITION = new THREE.Vector3(55.214, -0.95, -33.493);
-// Rotated 90° right (clockwise around Y) from the original -Z heading.
+// 1 unit in -X from CAMERA_POSITION — the default startup anchor point.
 const CAMERA_TARGET = new THREE.Vector3(54.214, -0.95, -33.493);
 
-// How far in front of the anchor the OrbitControls target sits. The camera
-// orbits this target on a 1-unit sphere centred on the anchor, so look-around
-// feels like a subtle head turn rather than a walk-around.
-const LOOK_DISTANCE = 1;
-const LOOK_DIRECTION = new THREE.Vector3(-1, 0, 0);
-
-// Restrict how far the crew can swing the view away from the default heading
-// so the interior never spins into a full 360° sweep.
-const AZIMUTH_RANGE = Math.PI / 4; // ±45° horizontal
-const POLAR_MIN = Math.PI / 2 - Math.PI / 6; // -30° from horizon
-const POLAR_MAX = Math.PI / 2 + Math.PI / 6; // +30° from horizon
+// Camera orbits the anchor (module centre) at this distance; full 360°
+// azimuth with OrbitControls default axis mapping (drag right → view
+// rotates right).
+const ORBIT_DISTANCE = 1;
+const ORBIT_OFFSET = new THREE.Vector3(1, 0, 0);
 
 function Model() {
   const { scene } = useGLTF("/iss-interior.glb");
@@ -89,20 +83,20 @@ function AreaAnchor({
   }, [gltfScene]);
 
   useEffect(() => {
-    const anchor = area === null ? CAMERA_POSITION : areaCenters.get(area);
+    // Default startup pose hard-codes both camera + target; for every named
+    // area we orbit the module centre at a fixed radius so the user can
+    // rotate a full 360° around it.
+    if (area === null) {
+      camera.position.copy(CAMERA_POSITION);
+      controlsRef.current?.target.copy(CAMERA_TARGET);
+      controlsRef.current?.update();
+      return;
+    }
+    const anchor = areaCenters.get(area);
     if (!anchor) return;
-
-    camera.position.copy(anchor);
-
-    const controls = controlsRef.current;
-    if (!controls) return;
-
-    const target =
-      area === null
-        ? CAMERA_TARGET
-        : anchor.clone().add(LOOK_DIRECTION.clone().multiplyScalar(LOOK_DISTANCE));
-    controls.target.copy(target);
-    controls.update();
+    camera.position.copy(anchor).add(ORBIT_OFFSET);
+    controlsRef.current?.target.copy(anchor);
+    controlsRef.current?.update();
   }, [area, camera, areaCenters, controlsRef]);
 
   return null;
@@ -135,13 +129,9 @@ function Scene() {
         ref={controlsRef}
         enableZoom={false}
         enablePan={false}
-        minDistance={LOOK_DISTANCE}
-        maxDistance={LOOK_DISTANCE}
-        minAzimuthAngle={-AZIMUTH_RANGE}
-        maxAzimuthAngle={AZIMUTH_RANGE}
-        minPolarAngle={POLAR_MIN}
-        maxPolarAngle={POLAR_MAX}
-        rotateSpeed={0.4}
+        minDistance={ORBIT_DISTANCE}
+        maxDistance={ORBIT_DISTANCE}
+        rotateSpeed={0.5}
       />
     </>
   );
