@@ -101,9 +101,12 @@ Esc to cancel.
   — `extract_last_user_query` returns empty → `inject_rag_context`
   returns early); we chose to inject a topical hint rather than
   nothing. Revisit when a lightweight STT is wired in.
-- **Cloud fallback is text-turn-only.** `gemini_handoff.py` routes to
-  `generativelanguage.googleapis.com` when local confidence drops,
-  local reply is empty, or every emitted tool call fails schema
-  validation. Voice turns stay fully local — translating PCM to
-  Gemini's audio input format wasn't in this pass. Toggle via
-  `HYBRID_ENABLED` in `.env`.
+- **Cloud fallback uses Cactus's built-in `auto_handoff`.** When rolling
+  confidence drops below `COMPLETION_OPTIONS["confidence_threshold"]`,
+  Cactus fires a parallel cloud request to its proxy at
+  `https://104.198.76.3/api/v1`, which routes to Gemini. Model selected
+  by `CACTUS_CLOUD_MODEL` env var (default `gemini-3.1-pro-preview`).
+  Auth via `CACTUS_CLOUD_KEY`. See `cactus_complete.cpp:780-948` for
+  the trigger/join logic. Response shape carries `cloud_handoff: bool`
+  which `server.py` maps to a `source: "local"|"cloud"` field. Disable
+  entirely by flipping `auto_handoff: False` in `config.py`.

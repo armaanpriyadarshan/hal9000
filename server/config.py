@@ -1,13 +1,15 @@
 """Defaults for the HAL 9000 voice agent."""
 
-import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 
-# Loads server/.env next to this file. Safe to call when the file is
-# missing — load_dotenv returns False silently.
+# Loads server/.env next to this file into os.environ. The Cactus C
+# engine reads CACTUS_CLOUD_KEY / CACTUS_CLOUD_API_BASE /
+# CACTUS_CLOUD_MODEL via getenv() at inference time, so dotenv MUST run
+# before any cactus_complete() call — i.e. at module import, which is
+# what this does.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 
@@ -16,16 +18,6 @@ EMBED_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
 WEIGHTS_ROOT = Path("/opt/homebrew/opt/cactus/libexec/weights")
 CORPUS_DIR = Path(__file__).resolve().parent / "corpus"
-
-# Gemini cloud fallback. HYBRID_ENABLED gates all cloud turns; the rest
-# of these only apply when it's true.
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
-HYBRID_ENABLED = os.getenv("HYBRID_ENABLED", "false").lower() in ("1", "true", "yes")
-# Local turns below this confidence (1 - first-token entropy, supplied
-# by cactus_complete in the response JSON) are candidates for handoff.
-CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.7"))
-GEMINI_TIMEOUT_S = float(os.getenv("GEMINI_TIMEOUT_S", "20"))
 
 SYSTEM_PROMPT = (
     "You are HAL 9000, a Heuristically programmed ALgorithmic computer, "
@@ -127,13 +119,19 @@ COMPLETION_OPTIONS = {
     # and a live tool-call probe on 2026-04-18). Turn time drops ~8x vs
     # the thinking-on CoT preamble.
     "enable_thinking_if_supported": False,
-    # Cactus's built-in cloud handoff is disabled — we route through
-    # gemini_handoff.py instead so we keep control over the trigger
-    # signals (low confidence / empty reply / all tools failed schema),
-    # the cloud model choice, and the cloud response shape. Leaving
-    # Cactus's default (True) would silently add a 15-second timeout to
-    # every turn via its own Cactus-Cloud proxy.
-    "auto_handoff": False,
+    # Cactus's built-in hybrid routing. When the local model's rolling
+    # confidence (1 - first-token entropy; computed per
+    # cactus_complete.cpp:781) drops below confidence_threshold, Cactus
+    # fires a parallel cloud request via its proxy at
+    # https://104.198.76.3/api/v1 and swaps the cloud reply in if it
+    # arrives before cloud_timeout_ms. Auth + model selection are read
+    # from env (CACTUS_CLOUD_KEY, CACTUS_CLOUD_MODEL) — see server/.env.
+    "auto_handoff": True,
+    "confidence_threshold": 0.7,
+    "cloud_timeout_ms": 15000,
+    # handoff_with_images: cactus_complete.cpp:786 gates eligibility on
+    # `!has_images || handoff_with_images`. We have no image turns today,
+    # so this is cosmetic — left default.
     "telemetry_enabled": False,
     # Stop tokens from the Cactus Gemma-4 test suite. `<turn|>` is the
     # only one Gemma 4 actually emits — the others are defensive/legacy.

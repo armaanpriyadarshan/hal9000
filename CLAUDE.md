@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-HAL 9000 is an on-device voice agent for deep-space missions. Gemma 4 E2B runs locally via Cactus and handles chat, tool-calling, and native audio-in through its multimodal conformer. Qwen3-Embedding-0.6B drives RAG retrieval; Piper does TTS. An optional hybrid fallback to Gemini 3.1 via Google's Generative Language API rescues text turns where local confidence is low, the reply is empty, or every emitted tool call failed schema validation. Next.js 16 3D client. Full setup from scratch is in `README.md`; subsystem details are in `server/README.md`, `voice/README.md`, and `client/AGENTS.md`.
+HAL 9000 is an on-device voice agent for deep-space missions. Gemma 4 E2B runs locally via Cactus and handles chat, tool-calling, and native audio-in through its multimodal conformer. Qwen3-Embedding-0.6B drives RAG retrieval; Piper does TTS. An optional hybrid fallback routes low-confidence turns to a Gemini model via Cactus's built-in cloud handoff (proxy at `https://104.198.76.3/api/v1`). Next.js 16 3D client. Full setup from scratch is in `README.md`; subsystem details are in `server/README.md`, `voice/README.md`, and `client/AGENTS.md`.
 
 ## Running locally
 
@@ -37,10 +37,10 @@ Two local Cactus models plus Piper ONNX, all CPU, all proxied through the FastAP
 
 ```
 browser (mic, 3D)  ──HTTP──▶  FastAPI  ──FFI──▶  Cactus dylib
-                                 │                  ├─ Gemma 4 E2B (chat + native audio-in + tools)
-                                 │                  └─ Qwen3-Embedding-0.6B (RAG)
-                                 ├──HTTPS──▶ generativelanguage.googleapis.com (Gemini 3.1 fallback on text turns)
-                                 └──ONNX──▶  Piper (HAL voice TTS)
+                                                    ├─ Gemma 4 E2B (chat + native audio-in + tools)
+                                                    ├─ Qwen3-Embedding-0.6B (RAG)
+                                                    └─ auto_handoff ──HTTPS──▶  Cactus proxy (104.198.76.3) → Gemini
+                      ONNX──▶  Piper (HAL voice TTS)
 ```
 
 ### Per-turn pipeline (`server/server.py`)
@@ -48,9 +48,9 @@ browser (mic, 3D)  ──HTTP──▶  FastAPI  ──FFI──▶  Cactus dyli
 1. `/api/voice` takes raw int16 LE 16 kHz mono PCM; `/api/text` takes a string. Both land in `run_turn()`. Voice turns pass PCM through `CactusSession.complete(pcm_data=...)` straight into Gemma 4 E2B's audio encoder — no separate STT.
 2. RAG: `EmbedRagIndex` (`server/rag.py`) retrieves top-k chunks from `server/corpus/*.md` via `cactus_rag_query` (hybrid embedding + BM25, fused with RRF, the same retrieval Cactus's auto-RAG uses internally). On voice turns the user's transcript isn't available for retrieval, so the last assistant reply is used as a topical hint — voice turn 1 retrieves nothing, later voice turns drift with HAL's prior reply rather than the crew's current question. Retrieved chunks are injected into the system prompt for that turn only — they do not persist into conversation memory.
 3. KV cache is reset before every turn. Text turns could in principle reuse Cactus's smart prefix caching; voice turns can't (`decode_multimodal` in `model_gemma4_mm.cpp:252` skips `do_prefill` and doesn't re-apply fresh audio features when the prefix matches), so the reset is needed for voice and we apply it uniformly for consistency.
-4. `CactusSession.complete()` (`server/cactus_runtime.py`) runs Gemma 4 E2B with `enable_thinking_if_supported=False` (thinking-on adds hundreds of CoT tokens; disabling cuts turn time ~8x, tool-calling still works). `auto_handoff=False` so Cactus doesn't try to reach its own cloud proxy — we route hybrid handoff ourselves in Python.
+4. `CactusSession.complete()` (`server/cactus_runtime.py`) runs Gemma 4 E2B with `enable_thinking_if_supported=False` (thinking-on adds hundreds of CoT tokens; disabling cuts turn time ~8x, tool-calling still works). `auto_handoff=True` lets Cactus fire a parallel cloud request during local decode when rolling confidence drops below `confidence_threshold` (default 0.7 — entropy-based, `cactus_complete.cpp:781`) and swap the cloud reply in if it arrives within `cloud_timeout_ms`.
 5. Tool calls are dispatched by `server/tools.py` and returned to the client as `client_directives` for the 3D scene. Gemma occasionally emits plain-text `name(arg="v")` instead of the proper token format — `_parse_inline_tool_call` in `server.py` recovers these.
-6. Hybrid fallback: on **text turns only** (voice turns stay local because the cloud path is text-only in this pass), if `HYBRID_ENABLED=true` and local confidence < `CONFIDENCE_THRESHOLD`, the reply is empty, or every tool call hit a schema validation failure, `server/gemini_handoff.py` retries against `gemini-3.1-flash-lite-preview` (env-configurable via `GEMINI_MODEL`). Response carries `source: "local" | "cloud"`. Variable names are `GEMINI_*` because the endpoint is `generativelanguage.googleapis.com` regardless of model family.
+6. Hybrid fallback: Cactus's built-in `auto_handoff` routes low-confidence turns through the Cactus-Compute proxy at `https://104.198.76.3/api/v1`, which in turn calls a Gemini model (default `gemini-3.1-pro-preview`; override via `CACTUS_CLOUD_MODEL` env var — `gemini-3.1-flash-lite-preview` is the faster alternative). Auth uses the `CACTUS_CLOUD_KEY` env var (loaded from `server/.env` at import time by `python-dotenv`, picked up by the C engine via `getenv()`). Response carries `cloud_handoff: true` when the cloud path won; `server.py` exposes this as a `source: "local"|"cloud"` field.
 7. TTS: `server/tts.py` calls the Piper ONNX voice in `voice/` (imports `hal_tts`). If `voice/hal.onnx` isn't present, falls back to macOS `say`.
 8. Per-turn timing is logged as one line — `rag=… llm_total=… ttft=… decode=… tts=… [cloud=…] source=local|cloud total=…`. Useful when chasing latency regressions.
 

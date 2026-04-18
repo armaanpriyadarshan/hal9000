@@ -297,7 +297,7 @@ Gemma 4 thinking disabled:
 | LLM prefill (TTFT) | ~4 000 | ~1 000 tokens at ~90 tok/s on CPU (system + tools + audio placeholders) |
 | LLM decode | 500-4 000 | ~15-20 tok/s on CPU; decode length tracks reply length |
 | Piper TTS | 60-500 | Piper ONNX; scales with reply length |
-| Gemini cloud (when triggered) | ~600-1 500 | text turns only; see hybrid section below |
+| Cloud handoff (when triggered) | ~600-2 000 | runs in parallel with local decode; swaps in if it wins within timeout |
 | **text turn total** | **~5-8 s** | tool call: ~5 s; RAG-heavy answer: ~8 s |
 | **voice turn total** | **~6-10 s** | adds audio-encoder pass (ANE, pre-compiled `.mlmodelc`) |
 
@@ -321,19 +321,23 @@ get applied to the cached KV.
 
 ### Hybrid cloud fallback (optional)
 
-With `HYBRID_ENABLED=true` in `server/.env`, text turns that hit any
-of three triggers hand off to Google's Generative Language API:
+Cactus's built-in `auto_handoff` fires a parallel cloud request during
+local decode whenever the local model's rolling confidence (1 − first-
+token entropy, `cactus_complete.cpp:781`) drops below
+`confidence_threshold` (default 0.7). If the cloud reply arrives within
+`cloud_timeout_ms` (default 15000), it replaces the local reply; else
+the local reply wins.
 
-- Local confidence below `CONFIDENCE_THRESHOLD` (default 0.7,
-  entropy-based per `cactus_complete.cpp:781`)
-- Local reply is empty AND no tool calls were emitted
-- Every emitted tool call failed schema validation
+The cloud path uses Cactus's own proxy at `https://104.198.76.3/api/v1`,
+which routes to a Gemini model based on the `CACTUS_CLOUD_MODEL` env
+var. Default: `gemini-3.1-pro-preview` (flagship, ~2 s). Alternatives
+we've verified work: `gemini-3.1-flash-lite-preview` (~1 s),
+`gemini-2.5-flash-lite` (~0.4 s). Swap by editing `server/.env`.
 
-Default cloud model is `gemini-3.1-flash-lite-preview` (fast, supports
-disabling thinking, round-trip ~1 s for typical prompts). Switch to
-`gemini-3.1-pro-preview` via the `GEMINI_MODEL` env var if you want
-the flagship — note it requires thinking (budget can't be 0), so
-round-trip jumps to 2-4 s. Voice turns stay local.
+Auth is a `CACTUS_CLOUD_KEY` issued by Cactus-Compute (`cactus auth` in
+their CLI). Flip `auto_handoff: False` in `server/config.py`'s
+`COMPLETION_OPTIONS` to disable entirely. Voice turns stay local — the
+proxy doesn't receive PCM.
 
 ### Troubleshooting
 
