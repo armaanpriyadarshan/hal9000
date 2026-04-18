@@ -233,50 +233,6 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     }
 
 
-def _warmup_llm() -> None:
-    """Pay the one-time CoreML/Metal compile cost at startup instead of
-    inside turn 1. First text inference compiles Metal kernels; first
-    audio inference compiles the audio_encoder.mlpackage via Core ML.
-    Without this, turn 1 blocks for ~2 minutes the first time a user
-    speaks.
-
-    We run with a low max_tokens so decode is cheap, then reset() to
-    clear the warmup KV cache before the real conversation starts.
-    Compiled graphs persist across reset; only cached tokens go.
-    """
-    assert state.llm is not None
-    warm_opts = {**COMPLETION_OPTIONS, "max_tokens": 4}
-
-    print("Warming Gemma text path...", flush=True)
-    t0 = time.perf_counter()
-    state.llm.complete(
-        [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": "status check"},
-        ],
-        options=warm_opts,
-        tools=cactus_tools_json(),
-    )
-    print(f"  text warmup {int((time.perf_counter() - t0) * 1000)}ms", flush=True)
-    state.llm.reset()
-
-    # Audio warmup: 0.5 s of silence at 16 kHz int16 LE mono = 16 000 bytes.
-    # Triggers compilation of audio_encoder.mlpackage (Core ML on ANE).
-    print("Warming Gemma audio path...", flush=True)
-    t0 = time.perf_counter()
-    state.llm.complete(
-        [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": ""},
-        ],
-        options=warm_opts,
-        tools=cactus_tools_json(),
-        pcm_data=b"\x00" * 16_000,
-    )
-    print(f"  audio warmup {int((time.perf_counter() - t0) * 1000)}ms", flush=True)
-    state.llm.reset()
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     print(f"Loading chat model {LLM_MODEL}...", flush=True)
@@ -285,7 +241,6 @@ async def lifespan(_app: FastAPI):
     state.rag = EmbedRagIndex(EMBED_MODEL, CORPUS_DIR, cache_index=True)
     print("Warming HAL TTS...", flush=True)
     synth_wav_bytes("Initialized.")
-    _warmup_llm()
     reset_conversation()
     print("All models ready.", flush=True)
     yield

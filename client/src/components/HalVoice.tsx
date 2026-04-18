@@ -112,6 +112,11 @@ export default function HalVoice() {
 
   const startRecording = useCallback(async () => {
     clearIdleTimer();
+    // Flip the phase first so HAL's eye appears instantly. Mic setup
+    // (getUserMedia, AudioContext init, etc.) takes ~1 s the first time
+    // and would otherwise block the visualizer transition until it
+    // resolved. Revert to idle if setup fails.
+    phaseRef.current = "recording";
     try {
       await ensureMicStream();
       const stream = streamRef.current;
@@ -127,7 +132,6 @@ export default function HalVoice() {
       };
       recorderRef.current = rec;
       rec.start();
-      phaseRef.current = "recording";
     } catch {
       stopMicStream();
       phaseRef.current = "idle";

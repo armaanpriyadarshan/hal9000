@@ -100,14 +100,11 @@ SYSTEM_PROMPT = (
 
 COMPLETION_OPTIONS = {
     "max_tokens": 1500,
-    # Keep thinking on: Gemma 4 only emits the <|tool_call_start|>...
-    # token format Cactus parses when its chain-of-thought path is active.
-    # With thinking off, it emits tool calls as plain prose that Cactus
-    # doesn't recognise, so function_calls comes back empty.
-    # The thinking preamble sometimes leaks into the `response` field
-    # rather than the separate `thinking` field; run_turn cleans it up
-    # before TTS (see _clean_response in server.py).
-    "enable_thinking_if_supported": True,
+    # Experiment 2026-04-18: disabled to cut decode time. Prior comment
+    # claimed Cactus only parses tool calls with thinking on, but PR #582
+    # on the source build changed the default to non-thinking, implying
+    # tool-calling now works without it. Revert if function_calls regresses.
+    "enable_thinking_if_supported": False,
     # Critical: auto_handoff defaults to TRUE in Cactus (cactus_utils.h:415),
     # which silently hands off to Cactus Cloud on low confidence with a
     # 15-second timeout — a hidden ~seconds-scale latency risk per turn.
