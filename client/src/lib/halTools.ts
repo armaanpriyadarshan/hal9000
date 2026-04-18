@@ -29,6 +29,15 @@ const CLIENT_TOOLS: Record<string, Handler> = {
       `/exterior?highlight=${encodeURIComponent(part)}&t=${Date.now().toString(36)}`,
     );
   },
+  navigate_to: (args, { router }) => {
+    const area = typeof args.area === "string" ? args.area : "";
+    if (!area) return;
+    // Nonce mirrors highlight_part — repeat navigations to the same
+    // area retrigger the scene's flight effect.
+    router.push(
+      `/?area=${encodeURIComponent(area)}&t=${Date.now().toString(36)}`,
+    );
+  },
 };
 
 export function executeClientDirectives(
