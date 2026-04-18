@@ -169,6 +169,7 @@ export default function ExteriorHud() {
   const nodeCo2History = useSparklineHistory(lsValues, "NODE3000003");
   const array1History = useSparklineHistory(lsValues, "S4000002");
   const array2History = useSparklineHistory(lsValues, "P4000001");
+  const cmgHistory = useSparklineHistory(lsValues, "USLAB000010");
 
   // Total attitude error magnitude (sqrt of sum of squares).
   const attitudeError =
@@ -182,6 +183,13 @@ export default function ExteriorHud() {
   const co2Series: ChartSeries[] = [
     { label: "lab", values: ppCo2History },
     { label: "node 3", values: nodeCo2History, dashed: true },
+  ];
+  // Solar array current + voltage. Independent per-series normalisation
+  // in LineChart shows the shape of each even though the magnitudes
+  // aren't comparable (A vs V).
+  const powerSeries: ChartSeries[] = [
+    { label: "1A curr.", values: array1History },
+    { label: "2A volt.", values: array2History, dashed: true },
   ];
 
   return (
@@ -222,7 +230,11 @@ export default function ExteriorHud() {
 
         {/* Lab vs Node 3 ppCO₂ */}
         <div className="mt-2 flex justify-end">
-          <LineChart series={co2Series} width={260} height={44} />
+          <LineChart series={co2Series} width={260} height={64} />
+        </div>
+        <div className="mt-1 flex justify-between font-mono uppercase tracking-[0.16em] text-[8px] text-white-faint">
+          <span>— Lab</span>
+          <span>-- Node 3</span>
         </div>
 
         <div className="mt-3 flex flex-col gap-1.5">
@@ -301,13 +313,16 @@ export default function ExteriorHud() {
             </div>
           </div>
         </div>
-        <div className="mt-3">
+        <div className="mt-3 flex items-center gap-3">
           <RadialGauge
             size={40}
             pct={cmg !== null ? cmg / 100 : undefined}
             label="CMG Momentum"
             value={formatPuiValue("USLAB000010", cmg)}
           />
+          <div className="flex-1">
+            <Sparkline values={cmgHistory} width={120} height={28} showMarker grid />
+          </div>
         </div>
         <div className="mt-2 pt-2 border-t border-white/10">
           <HudRow
@@ -329,6 +344,14 @@ export default function ExteriorHud() {
         </div>
         <div className="mt-1 font-mono uppercase tracking-[0.2em] text-[9px] text-white-dim">
           GMT · MET {formatMet(now)}
+        </div>
+
+        <div className="mt-4 flex justify-end">
+          <LineChart series={powerSeries} width={260} height={52} />
+        </div>
+        <div className="mt-1 flex justify-between font-mono uppercase tracking-[0.16em] text-[8px] text-white-faint">
+          <span>— 1A curr.</span>
+          <span>-- 2A volt.</span>
         </div>
 
         <div className="mt-3">
