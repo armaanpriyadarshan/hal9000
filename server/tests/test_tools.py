@@ -31,3 +31,30 @@ def test_dispatch_valid_set_view_returns_directive_and_ack():
         {"name": "set_view", "arguments": {"view": "exterior"}}
     ]
     assert result.failed_calls == []
+
+
+def test_dispatch_unknown_tool_yields_failed_call_and_generic_ack():
+    calls = [{"name": "launch_missile", "arguments": {}}]
+    result = dispatch(calls)
+    assert result.client_directives == []
+    assert len(result.failed_calls) == 1
+    assert result.failed_calls[0]["name"] == "launch_missile"
+    assert result.failed_calls[0]["reason"] == "unknown tool"
+    assert result.ack_text == "I am unable to comply with that request, Ethan."
+
+
+def test_dispatch_invalid_enum_value_fails():
+    calls = [{"name": "set_view", "arguments": {"view": "cupola"}}]
+    result = dispatch(calls)
+    assert result.client_directives == []
+    assert len(result.failed_calls) == 1
+    assert result.failed_calls[0]["name"] == "set_view"
+    assert result.ack_text == "I am unable to comply with that request, Ethan."
+
+
+def test_dispatch_missing_required_arg_fails():
+    calls = [{"name": "set_view", "arguments": {}}]
+    result = dispatch(calls)
+    assert result.client_directives == []
+    assert len(result.failed_calls) == 1
+    assert result.ack_text == "I am unable to comply with that request, Ethan."
