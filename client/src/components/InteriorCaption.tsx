@@ -11,9 +11,8 @@ import { INTERIOR_AREAS, isCanonicalArea } from "@/lib/interiorAreas";
  *
  * - Top-center banner: "NOW AT <displayName>" — mirrors PartCaption's
  *   language but swaps the verb ("Highlighting" → "Now at").
- * - Bottom-right card: reuses DraggableCaption. Close-X clears the
- *   ?area= param, which triggers the scene's single-segment retreat
- *   to the startup pose.
+ * - Mid-right card: reuses DraggableCaption. Close-X clears the ?area=
+ *   param, which teleports back to the startup pose.
  *
  * Mounts outside the Canvas so it never fights <Html> portals. Both
  * overlays are gated on a valid canonical area; an unknown area param
@@ -47,7 +46,7 @@ export default function InteriorCaption() {
           </span>
         </div>
       </div>
-      <div className="fixed bottom-hud-inset right-hud-inset z-30 w-[220px] h-0">
+      <div className="fixed top-1/2 right-hud-inset -translate-y-1/2 z-30 w-[220px] h-0">
         <DraggableCaption
           offset={offset}
           onOffsetChange={setOffset}
