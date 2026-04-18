@@ -114,6 +114,50 @@ TOOL_SPECS: list[ToolSpec] = [
         location="client",
         ack_template="Highlighting the {part}.",
     ),
+    ToolSpec(
+        name="navigate_to",
+        description=(
+            "Fly the interior camera through the station to one of the "
+            "pressurised modules. Camera-only — no mesh highlighting. "
+            "Auto-switches to the interior view if the crew is currently "
+            "outside, so you do NOT need to call set_view first. Map the "
+            "crew's natural phrasing to one of the canonical names below:\n"
+            "- pmm — PMM, Leonardo, Permanent Multipurpose Module, stowage module\n"
+            "- unity — Unity, Node 1, central node\n"
+            "- harmony — Harmony, Node 2, forward node\n"
+            "- tranquility — Tranquility, Node 3, life-support node\n"
+            "- cupola — Cupola, observation dome, the window\n"
+            "- destiny — Destiny, US Lab, US Laboratory, main lab\n"
+            "- columbus — Columbus, ESA lab, European lab\n"
+            "- kibo_jpm — Kibo, JPM, Japanese Pressurised Module, main Japanese lab\n"
+            "- kibo_jlp — JLP, Kibo Logistics, Japanese Experiment Logistics Module, Kibo attic\n"
+            "- airlock — Quest, airlock, EVA prep, spacewalk prep"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "area": {
+                    "type": "string",
+                    "enum": [
+                        "pmm",
+                        "unity",
+                        "harmony",
+                        "tranquility",
+                        "cupola",
+                        "destiny",
+                        "columbus",
+                        "kibo_jpm",
+                        "kibo_jlp",
+                        "airlock",
+                    ],
+                    "description": "Canonical name of the module to fly to.",
+                },
+            },
+            "required": ["area"],
+        },
+        location="client",
+        ack_template="Navigating to the {area}.",
+    ),
 ]
 
 

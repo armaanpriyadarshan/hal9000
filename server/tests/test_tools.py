@@ -145,3 +145,43 @@ def test_dispatch_valid_highlight_part_returns_directive_and_ack():
         {"name": "highlight_part", "arguments": {"part": "solar_arrays"}}
     ]
     assert result.failed_calls == []
+
+
+EXPECTED_NAVIGATE_TO_ENUM = [
+    "pmm",
+    "unity",
+    "harmony",
+    "tranquility",
+    "cupola",
+    "destiny",
+    "columbus",
+    "kibo_jpm",
+    "kibo_jlp",
+    "airlock",
+]
+
+
+def test_navigate_to_is_registered():
+    spec = next((s for s in TOOL_SPECS if s.name == "navigate_to"), None)
+    assert spec is not None, "navigate_to missing from TOOL_SPECS"
+    assert spec.location == "client"
+    assert spec.parameters["required"] == ["area"]
+    enum = spec.parameters["properties"]["area"]["enum"]
+    assert list(enum) == EXPECTED_NAVIGATE_TO_ENUM
+
+
+def test_navigate_to_description_covers_every_canonical_name():
+    spec = next((s for s in TOOL_SPECS if s.name == "navigate_to"), None)
+    assert spec is not None
+    for name in EXPECTED_NAVIGATE_TO_ENUM:
+        assert name in spec.description, f"canonical name {name!r} missing from description"
+
+
+def test_dispatch_valid_navigate_to_returns_directive_and_ack():
+    calls = [{"name": "navigate_to", "arguments": {"area": "cupola"}}]
+    result = dispatch(calls)
+    assert result.ack_text == "Navigating to the cupola."
+    assert result.client_directives == [
+        {"name": "navigate_to", "arguments": {"area": "cupola"}}
+    ]
+    assert result.failed_calls == []
