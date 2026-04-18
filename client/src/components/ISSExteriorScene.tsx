@@ -1,9 +1,9 @@
 "use client";
 
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars, useGLTF } from "@react-three/drei";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 
 import {
@@ -23,6 +23,20 @@ type OrbitControlsLike = {
 const HOLOGRAM_VERSION = "fresnel-v2-hl";
 const HIGH_VERTEX_COUNT = 2000;
 const EDGE_ANGLE_DEG = 20;
+
+const LERP_DURATION_MS = 1200;
+
+type Lerp = {
+  startPos: THREE.Vector3;
+  startTarget: THREE.Vector3;
+  endPos: THREE.Vector3;
+  endTarget: THREE.Vector3;
+  t0: number;
+};
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
 
 const VERTEX_SHADER = `
   varying vec3 vNormal;
@@ -162,6 +176,8 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
   }, [scene, camera, controls, defaultMat, lineMat]);
 
   // Highlight pass: swap per-mesh materials based on the current highlight.
+  const lerpRef = useRef<Lerp | null>(null);
+
   useEffect(() => {
     const matching = highlight
       ? resolveMatchingMeshes(scene, SHIP_PARTS[highlight].match)
@@ -173,7 +189,42 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
       if (!(child instanceof THREE.Mesh)) return;
       child.material = matching.has(child) ? highlightedMat : defaultMat;
     });
-  }, [scene, highlight, defaultMat, highlightedMat]);
+
+    if (!highlight || matching.size === 0) {
+      lerpRef.current = null;
+      return;
+    }
+    const entry = SHIP_PARTS[highlight];
+    const box = new THREE.Box3();
+    matching.forEach((m) => box.expandByObject(m));
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const diag = Math.max(size.length(), 0.1);
+    const scale = entry.cameraDistanceScale ?? 1.8;
+    const dir = new THREE.Vector3(...entry.cameraOffset).normalize();
+    const endPos = center.clone().add(dir.multiplyScalar(diag * scale));
+
+    lerpRef.current = {
+      startPos: camera.position.clone(),
+      startTarget: controls?.target.clone() ?? center.clone(),
+      endPos,
+      endTarget: center,
+      t0: performance.now(),
+    };
+  }, [scene, highlight, camera, controls, defaultMat, highlightedMat]);
+
+  useFrame(() => {
+    const lerp = lerpRef.current;
+    if (!lerp) return;
+    const t = Math.min((performance.now() - lerp.t0) / LERP_DURATION_MS, 1);
+    const e = easeInOutCubic(t);
+    camera.position.lerpVectors(lerp.startPos, lerp.endPos, e);
+    if (controls) {
+      controls.target.lerpVectors(lerp.startTarget, lerp.endTarget, e);
+      controls.update();
+    }
+    if (t >= 1) lerpRef.current = null;
+  });
 
   useEffect(
     () => () => {
