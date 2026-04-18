@@ -72,8 +72,19 @@ def messages_with_context(query_text: str) -> list[dict[str, Any]]:
 
 def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     assert state.llm is not None
+    turn_no = len([m for m in state.messages if m["role"] == "user"])
+    # Clear KV cache between turns. Cactus/Gemma-4 back-to-back audio turns
+    # silently produce empty completions when prior-turn audio tokens linger
+    # in cache. Rebuilds from state.messages on the next complete() call.
+    state.llm.reset()
+    msgs = messages_with_context(query_text)
+    print(
+        f"[turn {turn_no}] query_text={query_text!r} pcm_bytes={len(pcm_data) if pcm_data else 0} "
+        f"history_len={len(msgs)} roles={[m['role'] for m in msgs]}",
+        flush=True,
+    )
     result = state.llm.complete(
-        messages_with_context(query_text),
+        msgs,
         pcm_data=pcm_data,
         options=COMPLETION_OPTIONS,
         tools=cactus_tools_json(),
@@ -81,6 +92,10 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     response_text = result.get("response", "") or ""
     thinking = result.get("thinking", "") or ""
     function_calls = result.get("function_calls") or []
+    print(
+        f"[turn {turn_no}] response={response_text!r} function_calls={function_calls}",
+        flush=True,
+    )
 
     dispatched = dispatch(function_calls)
     if function_calls:
@@ -92,6 +107,10 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     # tokens — storing the tokens without a following tool-result message left
     # a dangling exchange that confused Gemma on follow-up turns.
     state.messages.append({"role": "assistant", "content": reply_text})
+    print(
+        f"[turn {turn_no}] spoken={reply_text!r} failed={dispatched.failed_calls}",
+        flush=True,
+    )
 
     return {
         "reply": reply_text,
