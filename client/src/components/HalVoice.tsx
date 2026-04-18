@@ -12,11 +12,14 @@ import {
   type Phase,
   attachVisualizer,
 } from "@/lib/halVisualizer";
+import { useRouter } from "next/navigation";
+import { executeClientDirectives, type ClientDirective } from "@/lib/halTools";
 
 const SERVER = process.env.NEXT_PUBLIC_HAL_SERVER ?? defaultServerUrl();
 const READY_IDLE_MS = 6000;
 
 export default function HalVoice() {
+  const router = useRouter();
   const phaseRef = useRef<Phase>("idle");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -188,8 +191,13 @@ export default function HalVoice() {
           signal: ctrl.signal,
         });
         if (!res.ok) throw new Error(`server ${res.status}`);
-        const json = (await res.json()) as { audio?: string };
+        const json = (await res.json()) as {
+          audio?: string;
+          client_directives?: ClientDirective[];
+        };
         if (cancelledRef.current) { cancelledRef.current = false; return; }
+
+        executeClientDirectives(json.client_directives ?? [], { router });
 
         if (!json.audio) {
           enterReady();
@@ -202,7 +210,7 @@ export default function HalVoice() {
         abortRef.current = null;
       }
     },
-    [enterReady, playReplyAudio],
+    [enterReady, playReplyAudio, router],
   );
 
   const cancel = useCallback(() => {
