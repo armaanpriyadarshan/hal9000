@@ -6,6 +6,7 @@ import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { DraggableCaption } from "@/components/hud/DraggableCaption";
 
 import {
   SHIP_PARTS,
@@ -184,6 +185,14 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
   // Highlight pass: swap per-mesh materials based on the current highlight.
   const lerpRef = useRef<Lerp | null>(null);
   const [boxCenter, setBoxCenter] = useState<THREE.Vector3 | null>(null);
+  const [anchor, setAnchor] = useState<THREE.Vector3 | null>(null);
+  // Pixel offset of the caption from the leader-line anchor. User can
+  // drag the card to taste; leader line follows. Reset when highlight
+  // changes.
+  const [captionOffset, setCaptionOffset] = useState<{ x: number; y: number }>({
+    x: 180,
+    y: -30,
+  });
 
   useEffect(() => {
     const matching = highlight
@@ -200,12 +209,39 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
     if (!highlight || matching.size === 0) {
       lerpRef.current = null;
       setBoxCenter(null);
+      setAnchor(null);
       return;
     }
+    // Reset the draggable offset on every fresh highlight so the card
+    // shows up in a predictable spot, not where the last drag ended.
+    setCaptionOffset({ x: 180, y: -30 });
     const entry = SHIP_PARTS[highlight];
     const box = new THREE.Box3();
     matching.forEach((m) => box.expandByObject(m));
     const center = box.getCenter(new THREE.Vector3());
+
+    // Leader-line anchor: use the world-space centre of the visually
+    // largest matched mesh, not the combined-box centroid. For
+    // spread-out groups like solar_arrays (which has 8 wings and a
+    // centroid in empty space inside the station), this lands the
+    // pointer on an actual visible mesh.
+    let anchorMesh: THREE.Mesh | null = null;
+    let anchorSize = -Infinity;
+    matching.forEach((m) => {
+      if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+      const sz = m.geometry.boundingBox?.getSize(new THREE.Vector3()).length() ?? 0;
+      if (sz > anchorSize) {
+        anchorSize = sz;
+        anchorMesh = m;
+      }
+    });
+    if (anchorMesh) {
+      const anchorPos = new THREE.Vector3();
+      (anchorMesh as THREE.Mesh).getWorldPosition(anchorPos);
+      setAnchor(anchorPos);
+    } else {
+      setAnchor(center);
+    }
     const size = box.getSize(new THREE.Vector3());
     const diag = Math.max(size.length(), 0.1);
     const scale = entry.cameraDistanceScale ?? 1.8;
@@ -247,65 +283,48 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
   return (
     <>
       <primitive object={scene} />
-      {highlight && boxCenter && (
+      {highlight && anchor && (
         <Html
-          position={[boxCenter.x, boxCenter.y, boxCenter.z]}
+          position={[anchor.x, anchor.y, anchor.z]}
           zIndexRange={[100, 0]}
           style={{ pointerEvents: "none" }}
         >
-          {/* Relative wrapper at the 3D anchor point. Leader line extends
-              right to the caption box so the box doesn't cover the mesh. */}
+          {/* Leader line + draggable caption card. The wrapper sits at
+              the 3D anchor point; the card absolute-positions itself at
+              `captionOffset` pixels from the anchor; the SVG line
+              connects them. Card is pointer-events-auto so the user can
+              drag it; anchor circle stays pointer-events-none. */}
           <div className="relative">
             <svg
-              width="180"
-              height="1"
-              style={{
-                position: "absolute",
-                left: 0,
-                top: 0,
-                overflow: "visible",
-              }}
+              width={1}
+              height={1}
+              style={{ position: "absolute", left: 0, top: 0, overflow: "visible" }}
             >
               <circle
                 cx={0}
-                cy={0.5}
+                cy={0}
                 r={2.5}
                 fill="none"
                 stroke="#fff"
                 strokeWidth={0.5}
               />
               <line
-                x1={5}
-                y1={0.5}
-                x2={176}
-                y2={0.5}
+                x1={0}
+                y1={0}
+                x2={captionOffset.x}
+                y2={captionOffset.y + 30}
                 stroke="rgba(255,255,255,0.6)"
                 strokeWidth={0.5}
               />
             </svg>
-            <div
-              className="absolute bg-black border-[0.5px] border-white/50 px-3 py-2 w-[220px]"
-              style={{ left: 180, top: -30 }}
-            >
-              <button
-                type="button"
-                onClick={() => router.push("/exterior")}
-                className="absolute top-1 right-1.5 font-mono text-[14px] leading-none text-white-dim hover:text-white"
-                style={{ pointerEvents: "auto" }}
-                aria-label="Clear highlight"
-              >
-                ×
-              </button>
-              <div className="font-mono uppercase tracking-[0.18em] text-[8px] text-white-dim pr-4">
-                {SHIP_PARTS[highlight].kind}
-              </div>
-              <div className="font-serif text-[18px] leading-tight text-white mt-0.5 pr-4">
-                {SHIP_PARTS[highlight].displayName}
-              </div>
-              <div className="mt-1.5 font-mono text-[9px] leading-snug text-white-dim">
-                {SHIP_PARTS[highlight].description}
-              </div>
-            </div>
+            <DraggableCaption
+              offset={captionOffset}
+              onOffsetChange={setCaptionOffset}
+              kind={SHIP_PARTS[highlight].kind}
+              name={SHIP_PARTS[highlight].displayName}
+              description={SHIP_PARTS[highlight].description}
+              onClose={() => router.push("/exterior")}
+            />
           </div>
         </Html>
       )}
