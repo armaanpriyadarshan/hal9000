@@ -1,9 +1,9 @@
 "use client";
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars, useGLTF } from "@react-three/drei";
+import { Html, OrbitControls, Stars, useGLTF } from "@react-three/drei";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 import {
@@ -177,6 +177,7 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
 
   // Highlight pass: swap per-mesh materials based on the current highlight.
   const lerpRef = useRef<Lerp | null>(null);
+  const [boxCenter, setBoxCenter] = useState<THREE.Vector3 | null>(null);
 
   useEffect(() => {
     const matching = highlight
@@ -192,6 +193,7 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
 
     if (!highlight || matching.size === 0) {
       lerpRef.current = null;
+      setBoxCenter(null);
       return;
     }
     const entry = SHIP_PARTS[highlight];
@@ -211,6 +213,7 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
       endTarget: center,
       t0: performance.now(),
     };
+    setBoxCenter(center);
   }, [scene, highlight, camera, controls, defaultMat, highlightedMat]);
 
   useFrame(() => {
@@ -235,7 +238,22 @@ function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
     [defaultMat, highlightedMat, lineMat],
   );
 
-  return <primitive object={scene} />;
+  return (
+    <>
+      <primitive object={scene} />
+      {highlight && boxCenter && (
+        <Html
+          position={[boxCenter.x, boxCenter.y, boxCenter.z]}
+          center
+          distanceFactor={8}
+        >
+          <div className="pointer-events-none text-cyan-200 text-xs uppercase tracking-wide bg-black/60 px-2 py-1 rounded border border-cyan-400/40 whitespace-nowrap">
+            {SHIP_PARTS[highlight].displayName}
+          </div>
+        </Html>
+      )}
+    </>
+  );
 }
 
 export default function ISSExteriorScene() {
