@@ -1,6 +1,20 @@
 import type { Metadata } from "next";
+import { EB_Garamond, JetBrains_Mono } from "next/font/google";
 import HalVoice from "@/components/HalVoice";
 import "./globals.css";
+
+const serif = EB_Garamond({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  style: ["normal", "italic"],
+  variable: "--font-serif",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-mono",
+});
 
 export const metadata: Metadata = {
   title: "HAL 9000",
@@ -13,7 +27,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html
+      lang="en"
+      className={`${serif.variable} ${mono.variable} h-full antialiased`}
+    >
       <body className="min-h-full flex flex-col">
         {children}
         <HalVoice />
