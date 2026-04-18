@@ -29,6 +29,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from cactus_runtime import CactusSession
+import json
+
 from config import (
     COMPLETION_OPTIONS,
     CORPUS_DIR,
@@ -37,6 +39,7 @@ from config import (
     SYSTEM_PROMPT,
 )
 from rag import EmbedRagIndex, build_context_block
+from tools import cactus_tools_json, dispatch
 from tts import synth_wav_base64, synth_wav_bytes
 
 
@@ -73,11 +76,47 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         messages_with_context(query_text),
         pcm_data=pcm_data,
         options=COMPLETION_OPTIONS,
+        tools=cactus_tools_json(),
     )
-    reply = result.get("response", "") or ""
+    response_text = result.get("response", "") or ""
     thinking = result.get("thinking", "") or ""
-    state.messages.append({"role": "assistant", "content": reply})
-    return {"reply": reply, "thinking": thinking, "audio": synth_wav_base64(reply)}
+    function_calls = result.get("function_calls") or []
+
+    dispatched = dispatch(function_calls)
+    if function_calls:
+        reply_text = dispatched.ack_text or "I am unable to comply with that request, Ethan."
+        state.messages.append({
+            "role": "assistant",
+            "content": _render_tool_call_history(function_calls, response_text),
+        })
+    else:
+        reply_text = response_text
+        state.messages.append({"role": "assistant", "content": reply_text})
+
+    return {
+        "reply": reply_text,
+        "thinking": thinking,
+        "audio": synth_wav_base64(reply_text),
+        "client_directives": dispatched.client_directives,
+        "failed_calls": dispatched.failed_calls,
+    }
+
+
+def _render_tool_call_history(
+    function_calls: list[dict[str, Any]], response_text: str
+) -> str:
+    """Serialise tool calls in Cactus's on-wire format for conversation
+    history. See cactus/docs/cactus_engine.md:361 for the format."""
+    parts = []
+    for call in function_calls:
+        args = call.get("arguments") or {}
+        arg_str = ", ".join(f"{k}={json.dumps(v)}" for k, v in args.items())
+        parts.append(
+            f'<|tool_call_start|>{call.get("name", "")}({arg_str})<|tool_call_end|>'
+        )
+    if response_text:
+        parts.append(response_text)
+    return "".join(parts)
 
 
 @asynccontextmanager
