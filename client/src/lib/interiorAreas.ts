@@ -87,7 +87,7 @@ export const INTERIOR_AREAS: Record<CanonicalArea, AreaEntry> = {
     displayName: "Kibo JPM",
     kind: "Japanese Laboratory",
     description:
-      "Japanese Pressurised Module — largest single habitable module on the station. JAXA research and Exposed Facility hub.",
+      "Japanese Pressurised Module — largest single non-Russian module on the station. JAXA research and Exposed Facility hub.",
     glbNodeName: "JPM",
   },
   kibo_jlp: {
