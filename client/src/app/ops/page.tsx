@@ -58,6 +58,14 @@ const QUICK_ALERTS = [
 // the crew says "yes" HAL has the enum value in its conversation
 // history and can emit the matching highlight_part / navigate_to
 // tool call. Scene doesn't auto-focus anymore — see useHalAlerts.
+//
+// Each scenario also declares a `stateChange` anomaly+params tuple
+// that mutates the physics sim so HAL's live telemetry actually
+// reflects the emergency (pO2 drops, cabin temp rises, etc.). Without
+// this, crew voice follow-ups read nominal telemetry and HAL ends up
+// contradicting its own alert — so we fire /api/debug/inject in
+// parallel with /api/debug/fire_alert when the scenario button is
+// clicked.
 const CLASS_1_SCENARIOS = [
   {
     name: "rapid_depress",
@@ -71,6 +79,10 @@ const CLASS_1_SCENARIOS = [
       "Would you like me to highlight the main modules on the " +
       "exterior view?"
     ),
+    stateChange: {
+      anomaly: "slow_o2_leak",
+      params: { kpa_per_min: 15.0 },
+    },
   },
   {
     name: "po2_critical",
@@ -84,6 +96,10 @@ const CLASS_1_SCENARIOS = [
       "Would you like me to highlight the main modules on the " +
       "exterior view?"
     ),
+    stateChange: {
+      anomaly: "slow_o2_leak",
+      params: { kpa_per_min: 15.0 },
+    },
   },
   {
     name: "cabin_fire",
@@ -96,6 +112,13 @@ const CLASS_1_SCENARIOS = [
       "extinguishers. I am isolating the Destiny IMV. " +
       "Would you like me to navigate to Destiny?"
     ),
+    stateChange: {
+      // No first-class fire anomaly in Phase 0; simulate the thermal
+      // effect via IATCS pump loss — cabin temp rises fast, which
+      // reads as consistent with a fire in the HAL telemetry.
+      anomaly: "iatcs_mtl_pump_fail",
+      params: { health: 0.0 },
+    },
   },
   {
     name: "toxic_atmosphere_nh3",
@@ -108,6 +131,10 @@ const CLASS_1_SCENARIOS = [
       "segment safe haven. I am isolating the affected IFHX. " +
       "Would you like me to navigate to Destiny?"
     ),
+    stateChange: {
+      anomaly: "ammonia_loop_leak",
+      params: { rate_kg_s: 0.1 },
+    },
   },
 ] as const;
 
@@ -324,14 +351,25 @@ export default function OpsConsole() {
                 <button
                   key={s.name}
                   disabled={busy}
-                  onClick={() =>
-                    post("/api/debug/fire_alert", {
-                      name: s.name,
-                      severity: "emergency",
-                      module: s.module,
-                      text: s.text,
-                    })
-                  }
+                  onClick={async () => {
+                    // Two calls in parallel: (1) mutate physics sim
+                    // so telemetry matches the alert; (2) broadcast
+                    // the canned alert. Sequential would be fine but
+                    // parallel shaves ~150 ms off the click → alert
+                    // latency on a slow network.
+                    await Promise.all([
+                      post("/api/debug/inject", {
+                        anomaly: s.stateChange.anomaly,
+                        params: s.stateChange.params,
+                      }),
+                      post("/api/debug/fire_alert", {
+                        name: s.name,
+                        severity: "emergency",
+                        module: s.module,
+                        text: s.text,
+                      }),
+                    ]);
+                  }}
                   className={
                     "text-left bg-black px-3 py-2 " +
                     "border border-[rgb(255,120,80)] " +

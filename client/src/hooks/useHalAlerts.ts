@@ -17,6 +17,37 @@ import { executeClientDirectives } from "@/lib/halTools";
  */
 export const HAL_ALERT_EVENT = "hal-alert-audio";
 
+/** sessionStorage key. Keeping the last alert here lets it survive
+ *  a page navigation (HAL's tool-call → router.push) so the banner,
+ *  vignette, and downstream halTools `risk=` enrichment stay alive
+ *  across routes. Per-tab scope (sessionStorage, not localStorage)
+ *  so operator and audience tabs don't stomp each other. */
+const LAST_ALERT_KEY = "hal9000.lastAlert";
+
+export function readPersistedAlert(): HalAlert | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(LAST_ALERT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as HalAlert;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedAlert(alert: HalAlert | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (alert === null) {
+      window.sessionStorage.removeItem(LAST_ALERT_KEY);
+    } else {
+      window.sessionStorage.setItem(LAST_ALERT_KEY, JSON.stringify(alert));
+    }
+  } catch {
+    /* quota / disabled — not fatal */
+  }
+}
+
 export type HalAlertAudioEvent = CustomEvent<{
   audio_b64: string;
   text: string;
@@ -114,7 +145,11 @@ export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
     onAlertRef.current = opts.onAlert;
   }, [opts.onAlert]);
 
-  const [lastAlert, setLastAlert] = useState<HalAlert | null>(null);
+  // Seed from sessionStorage so the banner, EmergencyFlash, and
+  // anything else bound to lastAlert survives a page navigation.
+  const [lastAlert, setLastAlert] = useState<HalAlert | null>(() =>
+    readPersistedAlert(),
+  );
   const [alertHistory, setAlertHistory] = useState<HalAlert[]>([]);
   const router = useRouter();
 
@@ -135,6 +170,7 @@ export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
       }
 
       setLastAlert(alert);
+      writePersistedAlert(alert);
       setAlertHistory((prev) => {
         const next = [alert, ...prev];
         return next.length > historyLimit ? next.slice(0, historyLimit) : next;

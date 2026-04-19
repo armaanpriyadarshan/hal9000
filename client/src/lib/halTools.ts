@@ -1,6 +1,7 @@
 "use client";
 
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import { readPersistedAlert } from "@/hooks/useHalAlerts";
 
 export type ClientToolCtx = {
   router: AppRouterInstance;
@@ -18,9 +19,32 @@ type Handler = (args: Record<string, unknown>, ctx: ClientToolCtx) => void;
 // "none" and the default blue Fresnel renders.
 const RISK_VALUES = new Set(["advisory", "caution", "warning", "emergency"]);
 
+/**
+ * Read the severity for the URL param.
+ *
+ * Priority order:
+ *   1. Explicit `risk` in tool args (useHalAlerts autoFocus still
+ *      passes it when enabled; future LLM tool schemas might).
+ *   2. Derived from the currently-active alert in sessionStorage,
+ *      when the tool target matches the alert's module. This is the
+ *      key line: it keeps the destination scene tinted red after HAL
+ *      tool-calls in response to a "show me" voice reply, without
+ *      requiring the LLM to hand-pass the severity every time.
+ */
 function riskParam(args: Record<string, unknown>): string {
-  const raw = typeof args.risk === "string" ? args.risk : "";
-  return RISK_VALUES.has(raw) ? `&risk=${encodeURIComponent(raw)}` : "";
+  const explicit = typeof args.risk === "string" ? args.risk : "";
+  if (RISK_VALUES.has(explicit)) {
+    return `&risk=${encodeURIComponent(explicit)}`;
+  }
+  const candidateModule =
+    typeof args.part === "string" ? args.part :
+    typeof args.area === "string" ? args.area : "";
+  if (!candidateModule) return "";
+  const last = readPersistedAlert();
+  if (last && last.module === candidateModule && RISK_VALUES.has(last.severity)) {
+    return `&risk=${encodeURIComponent(last.severity)}`;
+  }
+  return "";
 }
 
 const CLIENT_TOOLS: Record<string, Handler> = {
