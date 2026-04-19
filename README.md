@@ -330,11 +330,13 @@ link is down. Set `CLOUD_FIRST=false` (or omit) to run pure local.
 Transport is `server/cactus_proxy.py` → Cactus's proxy at
 `https://104.198.76.3/api/v1` (`/text` for text, `/omni` for audio),
 which routes to a Gemini model chosen by `CACTUS_CLOUD_MODEL`.
-Default: `gemini-3.1-pro-preview` (~2 s roundtrip, flagship — needed
-for accurate audio comprehension of proper nouns like Kibo module
-names). Alternatives: `gemini-3.1-flash-lite-preview` (~1 s, less
-accurate on nuanced audio), `gemini-2.5-flash-lite` (~0.4 s, even
-faster but weakest on audio). Swap by editing `server/.env`.
+Default: `gemini-3-flash-preview` (~2-3 s typical, correctly
+identifies less-common proper nouns like Kibo module names).
+Alternatives we've measured: `gemini-3.1-flash-lite-preview` (~1-2 s
+but mis-identifies proper nouns from audio — verified on "Kibo"),
+`gemini-3.1-pro-preview` (accurate but 5-15 s because thinking is
+forced on), `gemini-2.5-flash-lite` (~0.4 s, weakest audio).
+Swap by editing `server/.env`.
 
 Auth is a `CACTUS_CLOUD_KEY` issued by Cactus-Compute (`cactus auth` in
 their CLI). The C engine's own `auto_handoff` is off — Python does the
