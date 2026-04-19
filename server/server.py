@@ -122,8 +122,11 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     # instead of empty strings. If transcribe fails, fall back to the
     # old behaviour (pcm to /omni, assistant-reply RAG hint).
     cloud_pcm: bytes | None = pcm_data
+    t_transcribe_start = t_transcribe_end = time.perf_counter()
     if pcm_data is not None:
+        t_transcribe_start = time.perf_counter()
         transcript = _transcribe_audio(pcm_data)
+        t_transcribe_end = time.perf_counter()
         if transcript:
             corrected = apply_mishear_fixups(transcript)
             if corrected != transcript:
@@ -262,8 +265,11 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         else None
     )
     decode_str = f"{decode_ms}ms" if decode_ms is not None else "n/a"
+    transcribe_ms = _ms(t_transcribe_start, t_transcribe_end)
+    transcribe_str = f"{transcribe_ms}ms " if pcm_data is not None else ""
     print(
-        f"[turn {turn_no}] timing rag={_ms(t_rag_start, t_rag_end)}ms "
+        f"[turn {turn_no}] timing {'transcribe=' + transcribe_str if transcribe_str else ''}"
+        f"rag={_ms(t_rag_start, t_rag_end)}ms "
         f"llm_total={_ms(t_llm_start, t_llm_end)}ms "
         f"ttft={ttft_str} decode={decode_str} "
         f"tts={_ms(t_tts_start, t_tts_end)}ms "
