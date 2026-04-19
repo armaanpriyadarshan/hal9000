@@ -538,7 +538,17 @@ async def alerts_stream():
             # connection is live; comments don't trigger `onmessage`.
             yield b": hal9000 alerts stream ready\n\n"
             while True:
-                payload = await q.get()
+                # wait_for with a 15 s cap so an idle stream still
+                # emits a keepalive comment. Chromium has been
+                # observed to treat long-idle SSE streams as broken
+                # and tear down the EventSource; a periodic `: ka`
+                # line keeps the connection hot without triggering
+                # `onmessage` on the client.
+                try:
+                    payload = await asyncio.wait_for(q.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield b": ka\n\n"
+                    continue
                 yield payload_to_sse(payload)
         finally:
             await broadcaster.unsubscribe(q)

@@ -71,15 +71,36 @@ const FRAGMENT_SHADER = `
   }
 `;
 
-function makeMaterial(highlighted: boolean): THREE.ShaderMaterial {
+// Risk levels the scene can render. Matches the ORA severity enum
+// but kept inline to avoid an import cycle with the hook layer.
+// "none" is the default (no alert focus) → neutral blue.
+type HighlightRisk = "none" | "advisory" | "caution" | "warning" | "emergency";
+
+const RISKY = new Set<HighlightRisk>(["warning", "emergency"]);
+
+function isHighlightRisk(v: string | null): v is HighlightRisk {
+  return v === "advisory" || v === "caution" || v === "warning" || v === "emergency";
+}
+
+function makeMaterial(highlighted: boolean, risk: HighlightRisk = "none"): THREE.ShaderMaterial {
+  // Risky highlights swap the Fresnel palette to warm-red so the
+  // part *itself* communicates threat, not just the HUD banner.
+  // Matches the halVisualizer ring + EmergencyFlash vignette colours
+  // so the scene has one consistent emotional-colour vocabulary.
+  const risky = highlighted && RISKY.has(risk);
+  const baseColor = risky
+    ? new THREE.Color(1.0, 0.47, 0.31)  // rgb(255,120,80) as linear
+    : new THREE.Color(0x72b8e0);
+  const rimColor = risky
+    ? new THREE.Color(3.0, 1.2, 0.4)     // warm red bloom
+    : highlighted
+      ? new THREE.Color(2.4, 2.8, 3.0)
+      : new THREE.Color(0xdcf0f8);
+
   return new THREE.ShaderMaterial({
     uniforms: {
-      baseColor: { value: new THREE.Color(0x72b8e0) },
-      rimColor: {
-        value: highlighted
-          ? new THREE.Color(2.4, 2.8, 3.0)
-          : new THREE.Color(0xdcf0f8),
-      },
+      baseColor: { value: baseColor },
+      rimColor: { value: rimColor },
       rimPower: { value: highlighted ? 1.4 : 2.5 },
       baseAlpha: { value: highlighted ? 0.85 : 0.2 },
       rimAlpha: { value: highlighted ? 1.0 : 0.9 },
@@ -115,14 +136,23 @@ function resolveMatchingMeshes(
   return matches;
 }
 
-function HologramModel({ highlight }: { highlight: CanonicalPart | null }) {
+function HologramModel({
+  highlight,
+  risk,
+}: {
+  highlight: CanonicalPart | null;
+  risk: HighlightRisk;
+}) {
   const { scene } = useGLTF("/iss-exterior.glb");
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls) as OrbitControlsLike | null;
   const router = useRouter();
 
   const defaultMat = useMemo(() => makeMaterial(false), []);
-  const highlightedMat = useMemo(() => makeMaterial(true), []);
+  // Re-memo highlighted material on risk change so Fresnel palette
+  // swaps blue↔red when the scene transitions between routine
+  // highlighting and an active alert.
+  const highlightedMat = useMemo(() => makeMaterial(true, risk), [risk]);
   const lineMat = useMemo(
     () =>
       new THREE.LineBasicMaterial({
@@ -357,6 +387,8 @@ export default function ISSExteriorScene() {
   const highlight: CanonicalPart | null = isCanonicalPart(highlightRaw)
     ? highlightRaw
     : null;
+  const riskRaw = searchParams.get("risk");
+  const risk: HighlightRisk = isHighlightRisk(riskRaw) ? riskRaw : "none";
 
   return (
     <Canvas camera={{ position: [0, 0, 30], fov: 50, near: 0.1, far: 1000 }}>
@@ -371,7 +403,7 @@ export default function ISSExteriorScene() {
         speed={0.3}
       />
       <Suspense fallback={null}>
-        <HologramModel highlight={highlight} />
+        <HologramModel highlight={highlight} risk={risk} />
       </Suspense>
       <OrbitControls enableZoom enableDamping makeDefault />
       <EffectComposer>

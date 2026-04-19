@@ -153,18 +153,19 @@ export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
       }
 
       // Scene auto-focus — route the alert's module to the existing
-      // client directive dispatcher so we get camera motion + highlight
-      // for free.
+      // client directive dispatcher. The severity travels along as
+      // `risk` so the scene can colour the highlight accordingly
+      // (blue default → warm-red for warning/emergency).
       if (autoFocus && alert.module) {
         const isInterior = INTERIOR_MODULES.has(alert.module);
         const directive = isInterior
           ? {
               name: "navigate_to",
-              arguments: { area: alert.module },
+              arguments: { area: alert.module, risk: alert.severity },
             }
           : {
               name: "highlight_part",
-              arguments: { part: alert.module },
+              arguments: { part: alert.module, risk: alert.severity },
             };
         try {
           executeClientDirectives([directive], { router });

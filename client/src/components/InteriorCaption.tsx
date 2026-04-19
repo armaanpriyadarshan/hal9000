@@ -34,12 +34,31 @@ export default function InteriorCaption() {
   if (!area) return null;
   const entry = INTERIOR_AREAS[area];
 
+  const risk = params.get("risk");
+  const classLabel = risk
+    ? ({
+        emergency: "CLASS 1 · EMERGENCY",
+        warning: "CLASS 2 · WARNING",
+        caution: "CLASS 3 · CAUTION",
+        advisory: "CLASS 4 · ADVISORY",
+      } as Record<string, string>)[risk] ?? null
+    : null;
+  const urgent = risk === "emergency" || risk === "warning";
+
   return (
     <>
       <div className="pointer-events-none fixed top-hud-inset left-1/2 -translate-x-1/2 z-30 select-none">
         <div className="flex flex-col items-center leading-tight">
+          {classLabel && (
+            <span
+              className="font-mono uppercase tracking-[0.3em] text-[9px] mb-1"
+              style={{ color: urgent ? "rgb(255, 120, 80)" : undefined }}
+            >
+              ● {classLabel}
+            </span>
+          )}
           <span className="font-mono uppercase tracking-[0.3em] text-[9px] text-white-dim">
-            Now at
+            {classLabel ? "Affected" : "Now at"}
           </span>
           <span className="font-serif text-[28px] text-white mt-1 leading-none">
             {entry.displayName}

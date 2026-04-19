@@ -13,6 +13,16 @@ export type ClientDirective = {
 
 type Handler = (args: Record<string, unknown>, ctx: ClientToolCtx) => void;
 
+// Severities the scene knows how to tint against. Must match the
+// AlertSeverity enum on the server; anything else gets treated as
+// "none" and the default blue Fresnel renders.
+const RISK_VALUES = new Set(["advisory", "caution", "warning", "emergency"]);
+
+function riskParam(args: Record<string, unknown>): string {
+  const raw = typeof args.risk === "string" ? args.risk : "";
+  return RISK_VALUES.has(raw) ? `&risk=${encodeURIComponent(raw)}` : "";
+}
+
 const CLIENT_TOOLS: Record<string, Handler> = {
   set_view: (args, { router }) => {
     const view = typeof args.view === "string" ? args.view : "";
@@ -24,9 +34,10 @@ const CLIENT_TOOLS: Record<string, Handler> = {
     if (!part) return;
     // Append a nonce so repeat calls with the same part still change the
     // URL and retrigger the scene's highlight effect (camera lerp + label).
-    // The scene reads only `highlight`, ignoring `t`.
+    // Optional `risk` carries severity from proactive alerts so the
+    // scene can tint the highlight (see ISSExteriorScene).
     router.push(
-      `/exterior?highlight=${encodeURIComponent(part)}&t=${Date.now().toString(36)}`,
+      `/exterior?highlight=${encodeURIComponent(part)}${riskParam(args)}&t=${Date.now().toString(36)}`,
     );
   },
   navigate_to: (args, { router }) => {
@@ -35,7 +46,7 @@ const CLIENT_TOOLS: Record<string, Handler> = {
     // Nonce mirrors highlight_part — repeat navigations to the same
     // area retrigger the scene's flight effect.
     router.push(
-      `/?area=${encodeURIComponent(area)}&t=${Date.now().toString(36)}`,
+      `/?area=${encodeURIComponent(area)}${riskParam(args)}&t=${Date.now().toString(36)}`,
     );
   },
 };
