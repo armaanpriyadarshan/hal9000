@@ -91,6 +91,14 @@ def _build_prompt(
             "anything else — respond in natural-language text. When in "
             "doubt between a tool call and a text reply, always choose the "
             "text reply.",
+            "If you DO emit a tool call, you MUST be able to identify the "
+            "exact enum value the user named (e.g. the specific module "
+            "like 'kibo_jpm' or 'tranquility', the specific part like "
+            "'solar_arrays', the specific view). If you are not sure which "
+            "enum value the user meant — including when audio is unclear "
+            "or the user's phrasing is ambiguous — DO NOT guess. Instead "
+            "respond in text asking the crew to repeat or clarify. A wrong "
+            "tool call is worse than asking again.",
         ])
     if local_draft:
         lines.extend([
