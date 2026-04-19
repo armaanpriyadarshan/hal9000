@@ -49,6 +49,14 @@ export type UseHalAlertsOptions = {
    * steering the camera.
    */
   autoFocus?: boolean;
+  /**
+   * If true, don't play the alert's base64 WAV locally. Used by the
+   * operator /ops panel so HAL's voice isn't duplicated across the
+   * audience browser and the operator's backstage browser.
+   */
+  mute?: boolean;
+  /** Bounded alert history size; default 50. */
+  historyLimit?: number;
 };
 
 // Kept in sync with client/src/lib/interiorAreas.ts; duplicated here
@@ -67,7 +75,12 @@ const INTERIOR_MODULES = new Set([
 ]);
 
 export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
-  const { enabled = true, autoFocus = true } = opts;
+  const {
+    enabled = true,
+    autoFocus = true,
+    mute = false,
+    historyLimit = 50,
+  } = opts;
   const onAlertRef = useRef(opts.onAlert);
   // Stash the callback in a ref so changing it doesn't tear down the
   // EventSource every render.
@@ -76,6 +89,7 @@ export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
   }, [opts.onAlert]);
 
   const [lastAlert, setLastAlert] = useState<HalAlert | null>(null);
+  const [alertHistory, setAlertHistory] = useState<HalAlert[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const router = useRouter();
 
@@ -96,10 +110,14 @@ export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
       }
 
       setLastAlert(alert);
+      setAlertHistory((prev) => {
+        const next = [alert, ...prev];
+        return next.length > historyLimit ? next.slice(0, historyLimit) : next;
+      });
 
       // Kick audio first so the crew hears HAL even if the scene
       // auto-focus below throws. Audio is detached from the scene.
-      if (alert.audio_b64) {
+      if (!mute && alert.audio_b64) {
         try {
           if (!audioCtxRef.current) {
             audioCtxRef.current = new AudioContext();
@@ -168,7 +186,7 @@ export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
       void ctx; // keep the linter happy; GC will finalise it.
     };
     // Intentionally no `onAlert` in deps — callback is via ref.
-  }, [enabled, autoFocus, router]);
+  }, [enabled, autoFocus, mute, historyLimit, router]);
 
-  return { lastAlert };
+  return { lastAlert, alertHistory };
 }

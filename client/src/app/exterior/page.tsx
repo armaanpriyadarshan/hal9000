@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 const ISSExteriorScene = dynamic(() => import("@/components/ISSExteriorScene"), { ssr: false });
 const ExteriorHud = dynamic(() => import("@/components/ExteriorHud"), { ssr: false });
 const PartCaption = dynamic(() => import("@/components/PartCaption"), { ssr: false });
+const HalAlertHud = dynamic(() => import("@/components/HalAlertHud"), { ssr: false });
 
 export default function Exterior() {
   return (
@@ -12,6 +13,7 @@ export default function Exterior() {
       <ISSExteriorScene />
       <ExteriorHud />
       <PartCaption />
+      <HalAlertHud />
     </div>
   );
 }
