@@ -109,7 +109,20 @@ function makeMaterial(highlighted: boolean, risk: HighlightRisk = "none"): THREE
     fragmentShader: FRAGMENT_SHADER,
     side: THREE.FrontSide,
     transparent: true,
-    depthWrite: false,
+    // Write depth so overlapping translucent meshes stop re-sorting
+    // every frame during rotation. The GLB has many near-coplanar
+    // surfaces (inner/outer shells); without depthWrite the sort
+    // order flipped with every camera rotation, blinking whole
+    // panels in and out. Setting depthWrite=true trades "see through
+    // everything" for rock-stable depth ordering — which is what
+    // actually reads as a hologram, not flicker.
+    depthWrite: true,
+    // Push highlighted meshes slightly out of z so they never fight
+    // coplanar defaults. Factor + units empirically small — enough
+    // to separate stacks, not visible as displacement.
+    polygonOffset: true,
+    polygonOffsetFactor: highlighted ? -1 : 1,
+    polygonOffsetUnits: highlighted ? -1 : 1,
   });
 }
 
@@ -235,7 +248,13 @@ function HologramModel({
     }
     scene.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
-      child.material = matching.has(child) ? highlightedMat : defaultMat;
+      const isHighlighted = matching.has(child);
+      child.material = isHighlighted ? highlightedMat : defaultMat;
+      // Highlighted meshes render last so the warm-red glow always
+      // reads on top of the neutral blue. Without this, Three.js's
+      // internal sort can put a behind-camera default mesh on top
+      // of the highlighted mesh during rotation.
+      child.renderOrder = isHighlighted ? 2 : 0;
     });
 
     if (!highlight || matching.size === 0) {
