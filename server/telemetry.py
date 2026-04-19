@@ -147,6 +147,37 @@ class ShipState:
     def nominal(cls) -> "ShipState":
         return cls()
 
+    def reset_to_nominal(self) -> None:
+        """Wipe this state back to its factory defaults in place.
+
+        The background run_loop holds a direct reference to this
+        ShipState, so we can't swap the object — we reset its fields.
+        Used by POST /api/debug/full_reset to give the operator a
+        clean slate (called automatically on client hard-refresh).
+        """
+        fresh = ShipState.nominal()
+        self.p_total_kpa = fresh.p_total_kpa
+        self.pp_o2_kpa = fresh.pp_o2_kpa
+        self.pp_co2_kpa = fresh.pp_co2_kpa
+        self.pp_n2_kpa = fresh.pp_n2_kpa
+        self.cabin_t_c = fresh.cabin_t_c
+        self.cabin_rh_pct = fresh.cabin_rh_pct
+        self.oga_o2_rate_kg_day = fresh.oga_o2_rate_kg_day
+        self.cdra_removal_kg_day = fresh.cdra_removal_kg_day
+        self.loop_a_nh3_t_c = fresh.loop_a_nh3_t_c
+        self.loop_b_nh3_t_c = fresh.loop_b_nh3_t_c
+        self.ata_a_pressure_mpa = fresh.ata_a_pressure_mpa
+        self.array_current_a = fresh.array_current_a
+        self.battery_soc_pct = fresh.battery_soc_pct
+        self.sarj_motor_current_a = fresh.sarj_motor_current_a
+        self.cmg_momentum_frac = fresh.cmg_momentum_frac
+        self.orbit_phase = fresh.orbit_phase
+        self.orbit_t_in_phase_s = fresh.orbit_t_in_phase_s
+        self.t_sim_s = fresh.t_sim_s
+        self.crew_count = fresh.crew_count
+        self.params.reset()
+        self.active_anomalies.clear()
+
     def tick(self, dt_s: float = 1.0) -> None:
         """Advance one forward-Euler step."""
         self._tick_orbit(dt_s)

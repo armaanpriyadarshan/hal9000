@@ -1,8 +1,60 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { defaultServerUrl } from "@/lib/halAudio";
 import { useHalAlerts } from "@/hooks/useHalAlerts";
+
+
+/**
+ * Fire /api/debug/full_reset once, synchronously on the first mount
+ * after a page RELOAD (F5 / Cmd+Shift+R / Cmd+R). Normal in-app
+ * navigations (router.push, back button) are NOT reloads and don't
+ * trigger a reset — only a deliberate refresh does.
+ *
+ * Lives inside HalAlertHud because that component is mounted on
+ * both audience routes (/ and /exterior) and NOT on /ops, so the
+ * operator can refresh their console without wiping the demo state.
+ */
+const RESET_DONE = new Set<string>();  // in-module dedup against StrictMode
+
+function useResetOnHardReload() {
+  const hasRun = useRef(false);
+  useEffect(() => {
+    if (hasRun.current) return;
+    hasRun.current = true;
+    if (typeof window === "undefined") return;
+
+    // performance.getEntriesByType("navigation") returns the
+    // PerformanceNavigationTiming for the current document. .type
+    // distinguishes "navigate" (link, router.push) from "reload"
+    // (F5 / Cmd+R / Cmd+Shift+R). Only the latter should reset.
+    const entries = performance.getEntriesByType("navigation");
+    const nav = entries[0] as PerformanceNavigationTiming | undefined;
+    if (!nav || nav.type !== "reload") return;
+
+    // Module-level dedup so React 18/19 Strict-Mode double-invoke
+    // can't fire this twice. Keyed by document origin which is
+    // stable within a single browser tab.
+    const key = window.location.origin + window.location.pathname;
+    if (RESET_DONE.has(key)) return;
+    RESET_DONE.add(key);
+
+    // Clear client-side persistence too so the banner doesn't
+    // resurrect a stale alert the next tick.
+    try {
+      window.sessionStorage.removeItem("hal9000.lastAlert");
+    } catch {
+      /* quota / disabled — not fatal */
+    }
+
+    // Fire the server reset — fire-and-forget.
+    fetch(`${defaultServerUrl()}/api/debug/full_reset`, { method: "POST" })
+      .catch(() => {
+        /* ignore; refresh will retry on next reload */
+      });
+  }, []);
+}
 
 /**
  * Judge-facing alert banner. Fixed bottom-center, below the four-corner
@@ -88,6 +140,7 @@ function useAlertAge(timestamp: number | null): string | null {
 
 
 export default function HalAlertHud() {
+  useResetOnHardReload();
   const { lastAlert } = useHalAlerts();
   const age = useAlertAge(lastAlert?.timestamp ?? null);
 

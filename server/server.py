@@ -638,3 +638,23 @@ def debug_alerts_reset_cooldowns():
         raise HTTPException(status_code=503, detail="ORA not running")
     state.observer.reset_cooldowns()
     return {"ok": True}
+
+
+@app.post("/api/debug/full_reset")
+def debug_full_reset():
+    """Wipe everything back to a clean slate — physics sim back to
+    nominal, no anomalies active, observer cooldowns cleared,
+    conversation history wiped, alerts re-enabled.
+
+    Called automatically by the audience-page useEffect on hard
+    refresh so the operator never inherits leftover state from a
+    previous session. Also available on /ops as a Reset All button.
+    """
+    if state.ship is not None:
+        state.ship.reset_to_nominal()
+    if state.observer is not None:
+        state.observer.reset_cooldowns()
+    state.alerts_enabled = True
+    reset_conversation()
+    print("[debug] full reset — sim nominal, history wiped", flush=True)
+    return {"ok": True}
