@@ -68,7 +68,21 @@ def _build_prompt(
             "",
             "Available tools JSON (use only these tool names and arguments):",
             json.dumps(tools),
-            "If tools are relevant, prefer the strict JSON tool-call output contract above.",
+            # Rewritten 2026-04-18: the prior wording ('prefer the strict JSON
+            # tool-call output contract') combined with the HAL system prompt's
+            # 'prefer invoking a tool over describing the change in prose' led
+            # flash-lite to over-trigger tool calls on questions — e.g. 'who
+            # are you' routing to highlight_part(solar_arrays). Reframe to
+            # make the tool path conditional on an explicit action request.
+            "Tool use is STRICTLY CONDITIONAL: emit a tool call ONLY if the "
+            "user is clearly asking you to perform one of the specific "
+            "actions listed above (switch to interior/exterior view, "
+            "highlight a named exterior part, or navigate to a named "
+            "interior module). For ANY other input — questions about your "
+            "identity, the crew, procedures, systems, the mission, or "
+            "anything else — respond in natural-language text. When in "
+            "doubt between a tool call and a text reply, always choose the "
+            "text reply.",
         ])
     if local_draft:
         lines.extend([
