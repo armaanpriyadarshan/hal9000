@@ -8,6 +8,8 @@ function_calls and produces ack text + client directives.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, TypedDict
 
@@ -24,6 +26,19 @@ Location = Literal["server", "client"]
 # human-readable result ("Hatches closed. Cabin is sealed.") instead
 # of a generic template — the procedure knows exactly what happened.
 HandlerReturn = str | None
+
+
+# When a procedure executes we push a low-severity "resolved" alert
+# over SSE so the client UI (banner, module-severity index,
+# scene tint) can drop out of emergency mode. Each procedure maps to
+# the module it resolves.
+_PROCEDURE_MODULES: dict[str, str | None] = {
+    "seal_breach":       "main_modules",
+    "recover_cdra":      "tranquility",
+    "isolate_nh3_loop":  "s0_truss",
+    "suppress_fire":     "destiny",
+    "desaturate_cmgs":   None,
+}
 
 
 @dataclass(frozen=True)
@@ -46,10 +61,12 @@ class ToolSpec:
     handler: Callable[[dict[str, Any]], HandlerReturn] | None = None
 
 
-# Module-level reference to the running physics sim, so server-tool
-# handlers can mutate state. server.py sets this once in the FastAPI
-# lifespan after ShipState is constructed.
+# Module-level references wired from server.py's FastAPI lifespan so
+# server-tool handlers can mutate state AND push resolution payloads
+# over SSE to the audience client.
 _ship_state: ShipState | None = None
+_alert_broadcaster: Any = None  # ora.AlertBroadcaster, kept loose to avoid cycle
+_alert_history_cb: Callable[[Any], None] | None = None
 
 
 def set_ship_state(ship: ShipState | None) -> None:
@@ -57,19 +74,66 @@ def set_ship_state(ship: ShipState | None) -> None:
     _ship_state = ship
 
 
+def set_alert_broadcaster(broadcaster: Any,
+                          on_alert: Callable[[Any], None] | None = None) -> None:
+    """Expose the ORA broadcaster + assistant-turn-injection callback
+    so procedures can emit resolution payloads that update the UI."""
+    global _alert_broadcaster, _alert_history_cb
+    _alert_broadcaster = broadcaster
+    _alert_history_cb = on_alert
+
+
 def _execute_procedure_handler(args: dict[str, Any]) -> HandlerReturn:
     """Dispatch an emergency-response procedure into the physics sim.
     Returns the procedure's confirmation line so HAL speaks the
     situation-specific ack ("Hatches closed. Cabin is sealed.") rather
-    than the generic ack_template."""
-    # Import here to avoid a circular at module import; procedures
-    # depends on telemetry which is fine but keeps this file's
-    # imports minimal.
+    than the generic ack_template.
+
+    Also fires a low-severity "resolution" broadcast on the SSE
+    stream so the audience UI drops out of emergency mode: banner
+    swaps to the resolution text, module-severity index downgrades
+    (so a subsequent navigation to the same module doesn't still
+    render red), and the scene reflects the new state. The broadcast
+    carries no audio_b64 — HAL already speaks the confirmation via
+    the dispatch ack, so doubling would mean two TTS plays.
+    """
+    # Imports local to the handler to avoid circular module graph.
     from procedures import execute as execute_procedure
+    from ora import AlertPayload
 
     if _ship_state is None:
         raise RuntimeError("physics sim not initialised")
-    return execute_procedure(_ship_state, args["action"])
+    action = args["action"]
+    ack_text = execute_procedure(_ship_state, action)
+
+    # Fire-and-forget resolution broadcast.
+    if _alert_broadcaster is not None:
+        module = _PROCEDURE_MODULES.get(action)
+        payload = AlertPayload(
+            event_id=f"procedure:{action}:{int(time.time())}",
+            name=action,
+            severity="advisory",  # drop out of emergency colour space
+            module=module,
+            text=ack_text,
+            audio_b64="",  # HAL speaks via dispatch ack; no double voice
+            source="procedure",
+            timestamp=time.time(),
+            gate="resolved",
+        )
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(_alert_broadcaster.broadcast(payload))
+        except RuntimeError:
+            # No running loop — server.py uses uvicorn which guarantees one,
+            # so this branch is for non-server callers (tests). Ignore.
+            pass
+        if _alert_history_cb is not None:
+            try:
+                _alert_history_cb(payload)
+            except Exception:  # noqa: BLE001
+                pass
+
+    return ack_text
 
 
 class ClientDirective(TypedDict):

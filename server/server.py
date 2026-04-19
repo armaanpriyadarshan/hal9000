@@ -361,7 +361,8 @@ async def lifespan(_app: FastAPI):
         run_loop(state.ship, state.ship_stop, tick_hz=1.0)
     )
     # Let the tools registry mutate the ship via server-tool handlers
-    # (see tools.py _execute_procedure_handler).
+    # (see tools.py _execute_procedure_handler). Also wire the alert
+    # broadcaster so procedures can emit a resolution payload.
     import tools as tools_module
     tools_module.set_ship_state(state.ship)
     print("Telemetry simulator running at 1 Hz.", flush=True)
@@ -383,6 +384,10 @@ async def lifespan(_app: FastAPI):
             enabled_getter=lambda: state.alerts_enabled,
         )
     )
+    # Let server-tool handlers (execute_procedure) emit resolution
+    # broadcasts via the same broadcaster so the UI drops out of
+    # emergency mode when the crew closes out a procedure.
+    tools_module.set_alert_broadcaster(state.broadcaster, _on_alert)
     print("ORA loop running (alerts enabled).", flush=True)
     print("All models ready.", flush=True)
     yield
