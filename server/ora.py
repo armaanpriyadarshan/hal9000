@@ -169,8 +169,16 @@ def _parse_gate(text: str) -> tuple[str, str]:
 
 
 async def _run_gate(event: AlertEvent, *, timeout_s: float = 8.0) -> tuple[str, str]:
-    """Call the cloud proxy for an ALERT/SILENT verdict. Returns
-    ('alert', line) or ('silent', reason). Network failure → silent."""
+    """Call the cloud proxy for an ALERT/SILENT verdict.
+
+    Returns one of:
+      ('alert', line)           — gate approved, speak `line`
+      ('silent', reason)        — gate reasoned SILENT, respect it
+      ('unreachable', reason)   — proxy failed (timeout/network/HTTP)
+
+    The caller distinguishes 'silent' (intentional) from 'unreachable'
+    (no verdict) — when the proxy is down, we don't want a network
+    blip to mute a non-advisory anomaly. See process_event."""
     # cactus_proxy.complete is synchronous (httpx.Client). Offload so
     # we don't block the asyncio event loop.
     resp = await asyncio.to_thread(
@@ -182,7 +190,7 @@ async def _run_gate(event: AlertEvent, *, timeout_s: float = 8.0) -> tuple[str, 
         timeout_s=timeout_s,
     )
     if not resp.get("ok"):
-        return "silent", f"gate_unreachable: {resp.get('error')}"
+        return "unreachable", f"gate_unreachable: {resp.get('error')}"
     return _parse_gate(resp.get("response", ""))
 
 
@@ -212,14 +220,27 @@ async def process_event(
         gate_kind = "operator"
     else:
         verdict, payload_text = await _run_gate(event)
-        if verdict != "alert":
+        if verdict == "alert":
+            line = payload_text
+            gate_kind = "llm"
+        elif verdict == "unreachable" and event.severity != "advisory":
+            # Proxy is down but the anomaly is non-trivial. Don't let
+            # network weather mute a warning/caution/emergency — fall
+            # back to the observer's own summary text. Advisory-level
+            # sub-alarm drift still goes silent (safe default).
+            line = event.summary
+            gate_kind = "fallback_summary"
+            print(
+                f"[ora] event {event.event_id} gate unreachable, "
+                f"falling back to summary ({payload_text[:80]})",
+                flush=True,
+            )
+        else:
             print(
                 f"[ora] event {event.event_id} → SILENT ({payload_text[:100]})",
                 flush=True,
             )
             return None
-        line = payload_text
-        gate_kind = "llm"
 
     audio_b64 = await asyncio.to_thread(synth_wav_base64, line)
     payload = AlertPayload(

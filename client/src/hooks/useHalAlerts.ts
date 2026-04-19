@@ -3,8 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { base64ToArrayBuffer, defaultServerUrl } from "@/lib/halAudio";
+import { defaultServerUrl } from "@/lib/halAudio";
 import { executeClientDirectives } from "@/lib/halTools";
+
+
+/**
+ * Global event bus so a proactive alert can route its audio through
+ * HalVoice's AudioContext + analyser — the one the visualizer is
+ * already wired to. Without this, alert audio played on a separate
+ * context and HAL's eye stayed idle while it "spoke".
+ *
+ * HalVoice listens on `window.addEventListener(HAL_ALERT_EVENT, ...)`.
+ */
+export const HAL_ALERT_EVENT = "hal-alert-audio";
+
+export type HalAlertAudioEvent = CustomEvent<{
+  audio_b64: string;
+  text: string;
+  event_id: string;
+}>;
 
 /**
  * SSE subscriber for HAL's proactive alert stream (Phase 2 ORA loop).
@@ -90,7 +107,6 @@ export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
 
   const [lastAlert, setLastAlert] = useState<HalAlert | null>(null);
   const [alertHistory, setAlertHistory] = useState<HalAlert[]>([]);
-  const audioCtxRef = useRef<AudioContext | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -115,34 +131,24 @@ export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
         return next.length > historyLimit ? next.slice(0, historyLimit) : next;
       });
 
-      // Kick audio first so the crew hears HAL even if the scene
-      // auto-focus below throws. Audio is detached from the scene.
+      // Delegate playback to HalVoice via a CustomEvent. HalVoice owns
+      // the singleton AudioContext + analyser that drives halVisualizer
+      // — routing alert audio through it means HAL's eye animates while
+      // speaking a proactive alert, identical to a Q&A reply. Also
+      // prevents two AudioContexts from contending.
       if (!mute && alert.audio_b64) {
         try {
-          if (!audioCtxRef.current) {
-            audioCtxRef.current = new AudioContext();
-          }
-          const ctx = audioCtxRef.current;
-          // Browsers suspend AudioContext until a user gesture. If the
-          // page hasn't been clicked yet, resume() will succeed once
-          // the user has pressed Space to talk at least once; before
-          // then, the first alert will fail to play. That's acceptable
-          // for the demo — the crew is expected to have interacted.
-          if (ctx.state === "suspended") {
-            try {
-              await ctx.resume();
-            } catch {
-              /* no-op */
-            }
-          }
-          const buf = base64ToArrayBuffer(alert.audio_b64);
-          const decoded = await ctx.decodeAudioData(buf.slice(0));
-          const src = ctx.createBufferSource();
-          src.buffer = decoded;
-          src.connect(ctx.destination);
-          src.start();
+          window.dispatchEvent(
+            new CustomEvent(HAL_ALERT_EVENT, {
+              detail: {
+                audio_b64: alert.audio_b64,
+                text: alert.text,
+                event_id: alert.event_id,
+              },
+            }),
+          );
         } catch (err) {
-          console.warn("[useHalAlerts] audio play failed", err);
+          console.warn("[useHalAlerts] alert audio dispatch failed", err);
         }
       }
 
@@ -179,11 +185,6 @@ export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
 
     return () => {
       es.close();
-      const ctx = audioCtxRef.current;
-      // Don't close the AudioContext — future page mounts will reuse
-      // it via the ref reset on next mount. Just detach.
-      audioCtxRef.current = null;
-      void ctx; // keep the linter happy; GC will finalise it.
     };
     // Intentionally no `onAlert` in deps — callback is via ref.
   }, [enabled, autoFocus, mute, historyLimit, router]);

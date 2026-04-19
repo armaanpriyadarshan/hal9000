@@ -114,6 +114,11 @@ _RULES: tuple[_Rule, ...] = (
             f"pCO2 at {s.pp_co2_kpa:.2f} kPa "
             f"({s.pp_co2_kpa / 0.133322:.1f} mmHg), above crew-exposure limit."
         ),
+        canned_text=(
+            "Commander, carbon dioxide partial pressure has exceeded the "
+            "crew-exposure limit. Check CDRA status and prepare to switch to "
+            "the secondary bed."
+        ),
     ),
     _Rule(
         event_id="threshold:cabin_overtemp",
@@ -122,6 +127,11 @@ _RULES: tuple[_Rule, ...] = (
         module="destiny",
         predicate=lambda s: s.cabin_t_c > 28.0,
         summary_fn=lambda s: f"Cabin temperature at {s.cabin_t_c:.1f} °C, above comfort band.",
+        canned_text=(
+            "Commander, cabin temperature is above the comfort band. "
+            "Recommend checking the IATCS moderate-temperature loop and "
+            "starting load shedding on non-critical racks."
+        ),
     ),
     _Rule(
         event_id="threshold:battery_low",
@@ -130,6 +140,11 @@ _RULES: tuple[_Rule, ...] = (
         module=None,
         predicate=lambda s: s.battery_soc_pct < 25.0,
         summary_fn=lambda s: f"Battery SoC at {s.battery_soc_pct:.1f}%, entering reserve.",
+        canned_text=(
+            "Commander, battery state of charge has entered the reserve "
+            "band. Recommend shedding non-critical payload power until the "
+            "next sunlight pass."
+        ),
     ),
     _Rule(
         event_id="threshold:ata_pressure_low",
@@ -140,6 +155,11 @@ _RULES: tuple[_Rule, ...] = (
         summary_fn=lambda s: (
             f"ATA Loop A pressure at {s.ata_a_pressure_mpa:.2f} MPa "
             f"(nominal 2.62) — possible external ammonia leak."
+        ),
+        canned_text=(
+            "Commander, ammonia tank A pressure is below nominal. "
+            "This is consistent with an external loop leak. Recommend "
+            "visual inspection of the starboard truss."
         ),
     ),
     _Rule(
@@ -152,6 +172,10 @@ _RULES: tuple[_Rule, ...] = (
             f"pCO2 at {s.pp_co2_kpa:.2f} kPa — above caution threshold. "
             f"CDRA performance may be degraded."
         ),
+        canned_text=(
+            "Commander, carbon dioxide partial pressure has crossed the "
+            "caution threshold. CDRA performance may be degrading."
+        ),
     ),
     _Rule(
         event_id="threshold:po2_low",
@@ -160,6 +184,10 @@ _RULES: tuple[_Rule, ...] = (
         module="tranquility",
         predicate=lambda s: s.pp_o2_kpa < 20.5,
         summary_fn=lambda s: f"pO2 at {s.pp_o2_kpa:.2f} kPa — below ACS trigger.",
+        canned_text=(
+            "Commander, oxygen partial pressure is below the ACS makeup "
+            "trigger. I am drawing from the high-pressure tanks."
+        ),
     ),
     _Rule(
         event_id="threshold:cmg_saturation",
@@ -170,6 +198,11 @@ _RULES: tuple[_Rule, ...] = (
         summary_fn=lambda s: (
             f"CMG momentum at {s.cmg_momentum_frac * 100:.0f}% of envelope — "
             f"desaturation burn required."
+        ),
+        canned_text=(
+            "Commander, control-moment-gyro momentum has reached "
+            "saturation. A desaturation burn is required before the next "
+            "attitude maneuver."
         ),
     ),
     _Rule(

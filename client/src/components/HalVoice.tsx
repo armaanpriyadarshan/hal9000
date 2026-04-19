@@ -14,6 +14,7 @@ import {
 } from "@/lib/halVisualizer";
 import { useRouter } from "next/navigation";
 import { executeClientDirectives, type ClientDirective } from "@/lib/halTools";
+import { HAL_ALERT_EVENT } from "@/hooks/useHalAlerts";
 
 const SERVER = process.env.NEXT_PUBLIC_HAL_SERVER ?? defaultServerUrl();
 const READY_IDLE_MS = 6000;
@@ -262,6 +263,27 @@ export default function HalVoice() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [cancel, startRecording, stopRecording]);
+
+  // Listen for proactive alerts dispatched by useHalAlerts. We route
+  // alert audio through this component's playReplyAudio so HAL's
+  // visualizer animates identically to a Q&A reply — one AudioContext,
+  // one analyser, one phase state machine.
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ audio_b64?: string }>).detail;
+      const audioB64 = detail?.audio_b64;
+      if (!audioB64) return;
+      // If HAL is currently listening/thinking to a crew turn, don't
+      // barge in — let the reply finish. The alert banner + SSE event
+      // still inform the crew visually.
+      const p = phaseRef.current;
+      if (p === "recording" || p === "thinking" || p === "speaking") return;
+      cancelledRef.current = false;
+      void playReplyAudio(audioB64);
+    };
+    window.addEventListener(HAL_ALERT_EVENT, handler);
+    return () => window.removeEventListener(HAL_ALERT_EVENT, handler);
+  }, [playReplyAudio]);
 
   useEffect(() => {
     return () => {

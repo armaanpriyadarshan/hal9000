@@ -151,6 +151,41 @@ def test_caution_gate_silent_returns_none(monkeypatch):
     asyncio.run(body())
 
 
+def test_non_advisory_gate_unreachable_falls_back_to_summary(monkeypatch):
+    """When the cloud proxy is down, non-advisory events must still
+    reach the crew — fall back to the observer's summary text rather
+    than letting network weather silence HAL."""
+    async def fake_gate(event, *, timeout_s=8.0):
+        return "unreachable", "gate_unreachable: timeout"
+    monkeypatch.setattr(ora, "_run_gate", fake_gate)
+
+    for sev in ("caution", "warning", "emergency"):
+        async def body():
+            ev = _event(severity=sev, canned=None)
+            b = AlertBroadcaster()
+            payload = await process_event(ev, b)
+            assert payload is not None, f"{sev} dropped when gate unreachable"
+            assert payload.gate == "fallback_summary"
+            assert payload.text == ev.summary
+        asyncio.run(body())
+
+
+def test_advisory_gate_unreachable_stays_silent(monkeypatch):
+    """Advisory-severity sub-alarm drift should still go silent on a
+    gate failure — it wasn't worth interrupting for in the first
+    place, so noise during proxy outage is worse than silence."""
+    async def fake_gate(event, *, timeout_s=8.0):
+        return "unreachable", "gate_unreachable: timeout"
+    monkeypatch.setattr(ora, "_run_gate", fake_gate)
+
+    async def body():
+        ev = _event(severity="advisory", canned=None)
+        b = AlertBroadcaster()
+        payload = await process_event(ev, b)
+        assert payload is None
+    asyncio.run(body())
+
+
 def test_use_llm_gate_false_speaks_summary():
     """Operator-forced alert path — no canned, no gate, speak summary."""
     async def body():
