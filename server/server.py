@@ -34,6 +34,7 @@ from pydantic import BaseModel
 from cactus_runtime import CactusSession
 
 import cactus_proxy
+from cactus_proxy import _transcribe_audio
 from config import (
     CLOUD_FIRST,
     COMPLETION_OPTIONS,
@@ -111,6 +112,27 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     turn_no = len([m for m in state.messages if m["role"] == "user"])
     t_turn_start = time.perf_counter()
 
+    # Voice turns arrive with empty query_text. Transcribe first so we
+    # can (a) run RAG against what the user actually said — not against
+    # the previous assistant reply, which drifts semantically across
+    # turns (e.g. a prior 'all systems nominal... emergency procedures'
+    # reply retrieves ammonia chunks, which prime the next turn's
+    # output with ammonia content regardless of what the user asked);
+    # (b) populate the state.messages history with real user content
+    # instead of empty strings. If transcribe fails, fall back to the
+    # old behaviour (pcm to /omni, assistant-reply RAG hint).
+    cloud_pcm: bytes | None = pcm_data
+    if pcm_data is not None:
+        transcript = _transcribe_audio(pcm_data)
+        if transcript:
+            print(f"[turn {turn_no}] transcript={transcript!r}", flush=True)
+            if state.messages and state.messages[-1].get("role") == "user":
+                state.messages[-1] = {**state.messages[-1], "content": transcript}
+            query_text = transcript
+            cloud_pcm = None  # already transcribed; cloud gets text path
+        else:
+            print(f"[turn {turn_no}] transcribe failed; falling back to /omni", flush=True)
+
     t_rag_start = time.perf_counter()
     msgs = messages_with_context(query_text)
     t_rag_end = time.perf_counter()
@@ -139,7 +161,7 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         cloud = cactus_proxy.complete(
             msgs,
             tools=cactus_tools_json(),
-            pcm_data=pcm_data,
+            pcm_data=cloud_pcm,
         )
         if cloud["ok"]:
             response_text = cloud["response"]
