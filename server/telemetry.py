@@ -78,6 +78,13 @@ class ShipParams:
     # CDRA effectiveness. 1.0 removes CO2 at crew production rate; 0.0
     # means bed saturated or regen-valve stuck.
     cdra_efficiency: float = 1.0
+    # Regen-bed backflow of CO2 into the cabin (kg/s). Real CDRA
+    # failures can dump accumulated CO2 back through a stuck valve; we
+    # use this to give operator-triggered CDRA anomalies demo-visible
+    # pCO2 dynamics (the cabin is 916 m³ — without extra influx, pCO2
+    # climbs at ~0.025 kPa/hr from crew alone, which is invisible on
+    # stage). 0 nominal.
+    cdra_bleed_kg_s: float = 0.0
     # External ammonia loop leakage (kg/s NH3 out of loop A).
     nh3_leak_kg_s: float = 0.0
     # Additive SARJ drive current from bearing degradation.
@@ -92,6 +99,7 @@ class ShipParams:
         self.leak_rate_kg_s = 0.0
         self.oga_rate_kg_s = _OGA_NOMINAL_KG_S
         self.cdra_efficiency = 1.0
+        self.cdra_bleed_kg_s = 0.0
         self.nh3_leak_kg_s = 0.0
         self.sarj_extra_current_a = 0.0
         self.mtl_pump_health = 1.0
@@ -166,8 +174,14 @@ class ShipState:
         # Species-wise mass balance, then convert to pp via _KPA_PER_KG.
         o2_in_kg_s  = p.oga_rate_kg_s
         o2_out_kg_s = _CREW_O2_CONS_KG_S * crew
-        co2_in_kg_s = _CREW_CO2_PROD_KG_S * crew
-        co2_out_kg_s = co2_in_kg_s * p.cdra_efficiency
+        crew_co2_kg_s = _CREW_CO2_PROD_KG_S * crew
+        # CDRA bleed simulates regen-valve backflow on failure; only
+        # operator-triggered. Scales demo pacing of the pCO2 climb.
+        co2_in_kg_s = crew_co2_kg_s + p.cdra_bleed_kg_s
+        # Scrubber removes CO2 up to the crew-matched rate scaled by
+        # efficiency. The bleed term bypasses the scrubber — that's
+        # exactly what a stuck-valve regen failure models.
+        co2_out_kg_s = crew_co2_kg_s * p.cdra_efficiency
 
         # Split cabin leak across species by mole fraction. Rough but
         # good enough for demo; a real sonic-choke model would weight
@@ -194,9 +208,10 @@ class ShipState:
         self.p_total_kpa = self.pp_o2_kpa + self.pp_n2_kpa + self.pp_co2_kpa
 
         # Cabin temp drifts up if the MTL pump is dead — lab rack heat
-        # stops being carried away. Rate tuned for "visible in 1-2 min".
+        # stops being carried away. Demo pacing: 0.1 °C/s at full
+        # failure crosses the 28 °C threshold (from 22.5 °C) in ~55 s.
         if p.mtl_pump_health < 0.5:
-            self.cabin_t_c += 0.01 * dt_s * (1.0 - p.mtl_pump_health)
+            self.cabin_t_c += 0.1 * dt_s * (1.0 - p.mtl_pump_health)
 
         self.oga_o2_rate_kg_day  = p.oga_rate_kg_s * 86400.0
         self.cdra_removal_kg_day = co2_out_kg_s * 86400.0

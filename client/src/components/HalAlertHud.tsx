@@ -42,14 +42,23 @@ const SEVERITY_LABEL: Record<string, string> = {
   emergency: "EMERGENCY",
 };
 
-// Emergency event_id → ISS threat-name. Matches NASA's C&W tone
-// vocabulary (fire / rapid depress / toxic atmosphere). When an
+// Emergency event_id / name → ISS threat-name. Matches NASA's C&W
+// tone vocabulary (fire / rapid depress / toxic atmosphere). When an
 // emergency fires, the threat name replaces the module label in the
 // header for the familiar on-orbit readout.
+//
+// Looked up by alert.event_id first, then alert.name — so both
+// observer threshold rules (event_id = "threshold:rapid_depress")
+// and operator-fired scenarios from the ops panel (name =
+// "rapid_depress") render with the same threat label.
 const THREAT_NAME: Record<string, string> = {
-  "threshold:rapid_depress":  "RAPID DEPRESS",
-  "threshold:po2_critical":   "ATMOSPHERE · O2 DEPLETION",
-  // Future: threshold:cabin_fire, threshold:toxic_atmosphere_nh3
+  "threshold:rapid_depress":        "RAPID DEPRESS",
+  "rapid_depress":                  "RAPID DEPRESS",
+  "threshold:po2_critical":         "ATMOSPHERE · O2 DEPLETION",
+  "po2_critical":                   "ATMOSPHERE · O2 DEPLETION",
+  "cabin_fire":                     "FIRE",
+  "toxic_atmosphere":               "TOXIC ATMOSPHERE · NH3",
+  "toxic_atmosphere_nh3":           "TOXIC ATMOSPHERE · NH3",
 };
 
 // Class 1 + Class 2 get the attention-grabbing ping.
@@ -88,7 +97,8 @@ export default function HalAlertHud() {
   const severityLabel =
     SEVERITY_LABEL[lastAlert.severity] ?? lastAlert.severity.toUpperCase();
   const classLabel = CLASS_LABEL[lastAlert.severity] ?? "";
-  const threatName = THREAT_NAME[lastAlert.event_id];
+  const threatName =
+    THREAT_NAME[lastAlert.event_id] ?? THREAT_NAME[lastAlert.name];
   const isPulsing = PULSING.has(lastAlert.severity);
   const moduleLabel = lastAlert.module
     ? lastAlert.module.toUpperCase().replace(/_/g, " ")

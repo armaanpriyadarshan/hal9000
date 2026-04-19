@@ -96,15 +96,26 @@ def test_slow_o2_leak_drops_total_pressure_monotonically():
 
 def test_cdra_regen_fail_raises_ppco2():
     s = ShipState.nominal()
-    anomalies_lib.inject(s, "cdra_regen_fail", {"efficiency": 0.0})
+    # Demo defaults (bleed_kg_s=0.05) drive pCO2 up fast enough to
+    # cross caution (0.53 kPa) in ~45 s and warning (0.70) in ~2 min.
+    anomalies_lib.inject(s, "cdra_regen_fail")
     co2_0 = s.pp_co2_kpa
-    # Realistic rise for 6 crew in 916 m³ with CDRA off is ~0.025 kPa/hr
-    # (Law et al. NTRS 20100021976). Run 30 sim-minutes for >0.01 kPa
-    # above noise. Demo operators will want shorter timelines; they can
-    # inject with cdra_removal_kg_day overridden negative (future), but
-    # the physics here is deliberately faithful.
-    _run(s, 1800)
-    assert s.pp_co2_kpa > co2_0 + 0.005, (co2_0, s.pp_co2_kpa)
+    _run(s, 60)
+    assert s.pp_co2_kpa > co2_0 + 0.05, (co2_0, s.pp_co2_kpa)
+
+
+def test_cdra_regen_fail_with_explicit_bleed():
+    # Honour operator-provided override — zero bleed should give
+    # near-realistic slow climb (still a rise, but tiny).
+    s = ShipState.nominal()
+    anomalies_lib.inject(s, "cdra_regen_fail",
+                         {"efficiency": 0.0, "bleed_kg_s": 0.0})
+    co2_0 = s.pp_co2_kpa
+    _run(s, 60)
+    # With no bleed, rise matches realistic CDRA-off dynamics
+    # (~0.025 kPa/hr) → ~0.0004 kPa in 60 s. Assert strictly > baseline
+    # without demanding the big demo-pace delta.
+    assert s.pp_co2_kpa > co2_0, (co2_0, s.pp_co2_kpa)
 
 
 def test_ammonia_leak_drops_ata_pressure():
@@ -126,8 +137,10 @@ def test_iatcs_mtl_pump_fail_drifts_cabin_temp_up():
     s = ShipState.nominal()
     t0 = s.cabin_t_c
     anomalies_lib.inject(s, "iatcs_mtl_pump_fail", {"health": 0.0})
-    _run(s, 120)
-    assert s.cabin_t_c > t0 + 0.5, (t0, s.cabin_t_c)
+    # Demo pacing: 0.1 °C/s at full failure → ~6 °C rise in 60 s,
+    # crossing the 28 °C `cabin_overtemp` threshold from 22.5 °C.
+    _run(s, 60)
+    assert s.cabin_t_c > t0 + 5.0, (t0, s.cabin_t_c)
 
 
 def test_cmg_saturation_sets_momentum_directly():

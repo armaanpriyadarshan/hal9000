@@ -47,6 +47,68 @@ const QUICK_ALERTS = [
 ] as const;
 
 
+// Class 1 emergency scenarios matching the ISS C&W vocabulary (fire /
+// rapid depress / toxic atmosphere + O2 depletion). `name` must match
+// THREAT_NAME lookup in HalAlertHud so the banner renders the canonical
+// ISS threat label. Canned text follows the published emergency-response
+// procedure in server/corpus/emergencies-*.md so what HAL says on stage
+// matches what an actual ISS crew would hear.
+const CLASS_1_SCENARIOS = [
+  {
+    name: "rapid_depress",
+    module: "main_modules",
+    label: "Rapid Depress",
+    subtext: "Hull breach / rapid cabin P drop",
+    text: (
+      "PRIORITY ALERT. Cabin pressure is dropping rapidly. " +
+      "Commander, close all hatches immediately and don emergency " +
+      "oxygen. We may have a hull breach."
+    ),
+  },
+  {
+    name: "po2_critical",
+    module: "main_modules",
+    label: "O2 Depletion",
+    subtext: "pO2 critically low",
+    text: (
+      "EMERGENCY. Cabin oxygen is critically low. Commander, don " +
+      "oxygen masks now. I am compensating via ACS high-pressure " +
+      "tank makeup."
+    ),
+  },
+  {
+    name: "cabin_fire",
+    module: "destiny",
+    label: "Fire · Destiny",
+    subtext: "Smoke detector trip",
+    text: (
+      "EMERGENCY. Smoke detector trip in Destiny. Commander, shut off " +
+      "ventilation in the affected segment and prepare portable fire " +
+      "extinguishers. I am isolating the Destiny IMV."
+    ),
+  },
+  {
+    name: "toxic_atmosphere_nh3",
+    module: "destiny",
+    label: "Tox Atm · NH3",
+    subtext: "Ammonia detected in cabin",
+    text: (
+      "EMERGENCY. Ammonia detected in the cabin atmosphere. Commander, " +
+      "don emergency breathing apparatus and proceed to the Russian " +
+      "segment safe haven. I am isolating the affected IFHX."
+    ),
+  },
+] as const;
+
+
+type ChatTurn = {
+  role: "user" | "assistant";
+  text: string;
+  timestamp: number;
+  source?: string;
+};
+
+
 type ShipStateJson = {
   p_total_kpa: number;
   pp_o2_kpa: number;
@@ -89,6 +151,13 @@ export default function OpsConsole() {
   const [serverUp, setServerUp] = useState(true);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Text-chat workspace — drives /api/text so operators can verify
+  // telemetry awareness + RAG procedure-retrieval without needing
+  // the audience browser's mic or any curl command.
+  const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
 
   // Poll telemetry every 2 s. Faster than the 1 Hz sim isn't useful
   // (we'd just see the same sample twice); slower makes the operator
@@ -142,6 +211,61 @@ export default function OpsConsole() {
     }
   }
 
+  async function sendChat() {
+    const text = chatInput.trim();
+    if (!text || chatBusy) return;
+    setChatBusy(true);
+    const userTurn: ChatTurn = {
+      role: "user",
+      text,
+      timestamp: Date.now() / 1000,
+    };
+    setChatTurns((prev) => [...prev, userTurn]);
+    setChatInput("");
+    try {
+      const r = await fetch(`${server}/api/text`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!r.ok) {
+        setChatTurns((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: `[error: ${r.status} ${r.statusText}]`,
+            timestamp: Date.now() / 1000,
+          },
+        ]);
+        return;
+      }
+      const data = (await r.json()) as {
+        reply?: string;
+        source?: string;
+      };
+      setChatTurns((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: data.reply ?? "",
+          timestamp: Date.now() / 1000,
+          source: data.source,
+        },
+      ]);
+    } catch (err) {
+      setChatTurns((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: `[error: ${(err as Error).message}]`,
+          timestamp: Date.now() / 1000,
+        },
+      ]);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-black text-white flex flex-col">
       {/* Page header */}
@@ -183,6 +307,48 @@ export default function OpsConsole() {
       <main className="grid grid-cols-3 gap-4 flex-1 min-h-0 p-6">
         {/* Column 1: controls */}
         <div className="flex flex-col gap-5 overflow-auto pr-2">
+          <Section title="Class 1 Emergency · Canned, No Gate">
+            <div className="grid grid-cols-2 gap-2">
+              {CLASS_1_SCENARIOS.map((s) => (
+                <button
+                  key={s.name}
+                  disabled={busy}
+                  onClick={() =>
+                    post("/api/debug/fire_alert", {
+                      name: s.name,
+                      severity: "emergency",
+                      module: s.module,
+                      text: s.text,
+                    })
+                  }
+                  className={
+                    "text-left bg-black px-3 py-2 " +
+                    "border border-[rgb(255,120,80)] " +
+                    "transition-colors hover:bg-[rgba(255,120,80,0.08)] " +
+                    "active:bg-[rgba(255,120,80,0.16)] " +
+                    "disabled:opacity-40 disabled:cursor-not-allowed"
+                  }
+                  style={{
+                    boxShadow: "0 0 10px rgba(255, 70, 30, 0.35)",
+                  }}
+                >
+                  <div
+                    className="font-mono uppercase tracking-[0.18em] text-[8px]"
+                    style={{ color: "rgb(255, 120, 80)" }}
+                  >
+                    CLASS 1
+                  </div>
+                  <div className="font-mono uppercase tracking-[0.12em] text-[10px] text-white leading-snug">
+                    {s.label}
+                  </div>
+                  <div className="mt-0.5 font-mono uppercase tracking-[0.12em] text-[8px] text-white-faint">
+                    {s.subtext}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </Section>
+
           <Section title="Inject Anomaly">
             <div className="grid grid-cols-2 gap-2">
               {ANOMALY_BUTTONS.map((a) => (
@@ -282,8 +448,8 @@ export default function OpsConsole() {
           </Section>
         </div>
 
-        {/* Column 2: live telemetry */}
-        <div className="flex flex-col gap-5 overflow-auto pr-2">
+        {/* Column 2: live telemetry + text chat */}
+        <div className="flex flex-col gap-5 overflow-hidden pr-2">
           <Section title="Live Telemetry">
             {!ship ? (
               <div className="font-mono uppercase tracking-[0.14em] text-[9px] text-white-faint">
@@ -292,6 +458,86 @@ export default function OpsConsole() {
             ) : (
               <TelemetryTable ship={ship} />
             )}
+          </Section>
+
+          <Section title="Text Chat · /api/text">
+            <div className="flex flex-col gap-2 min-h-0">
+              <div className="flex flex-col gap-2 overflow-auto max-h-[28vh]">
+                {chatTurns.length === 0 ? (
+                  <div className="font-mono uppercase tracking-[0.14em] text-[9px] text-white-faint">
+                    Ask HAL something. Use to verify telemetry
+                    awareness and emergency-procedure retrieval.
+                  </div>
+                ) : (
+                  chatTurns.map((t, i) => (
+                    <div
+                      key={`${t.timestamp}-${i}`}
+                      className="border-[0.5px] border-white/20 px-3 py-2"
+                    >
+                      <div className="font-mono uppercase tracking-[0.18em] text-[8px] text-white-dim">
+                        {t.role === "user" ? "OPERATOR" : "HAL"}
+                        {t.source && (
+                          <span className="ml-2 text-white-faint">
+                            · {t.source.toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className={
+                          t.role === "user"
+                            ? "mt-1 font-mono text-[11px] text-white-dim"
+                            : "mt-1 font-serif text-[13px] text-white leading-snug"
+                        }
+                      >
+                        {t.text}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void sendChat();
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  disabled={chatBusy}
+                  placeholder="Ask HAL (text)"
+                  className={
+                    "flex-1 bg-black border-[0.5px] border-white/50 px-3 py-2 " +
+                    "font-mono text-[11px] text-white placeholder:text-white-faint " +
+                    "focus:outline-none focus:border-white " +
+                    "disabled:opacity-50"
+                  }
+                />
+                <button
+                  type="submit"
+                  disabled={chatBusy || chatInput.trim().length === 0}
+                  className={
+                    "border-[0.5px] border-white/50 bg-black px-4 py-2 " +
+                    "font-mono uppercase tracking-[0.18em] text-[10px] text-white " +
+                    "transition-colors hover:bg-white/5 " +
+                    "disabled:opacity-40 disabled:cursor-not-allowed"
+                  }
+                >
+                  {chatBusy ? "…" : "Send"}
+                </button>
+              </form>
+              {chatTurns.length > 0 && (
+                <button
+                  onClick={() => setChatTurns([])}
+                  className="self-end font-mono uppercase tracking-[0.14em] text-[8px] text-white-faint hover:text-white-dim"
+                >
+                  clear log
+                </button>
+              )}
+            </div>
           </Section>
         </div>
 

@@ -49,10 +49,12 @@ class AnomalySpec:
 
 
 def _slow_o2_leak(params: ShipParams, kwargs: dict) -> None:
-    # Default: 0.1 mmHg/min ≈ 0.013 kPa/min — sub-alarm drift, exactly
-    # the regime where HAL catching it before C&W matters. Crew param
-    # overrides let the operator dial severity.
-    kpa_per_min = float(kwargs.get("kpa_per_min", 0.013))
+    # Demo default: 1.0 kPa/min — fast enough that pO2 crosses the
+    # 20.5 kPa ACS-trigger within ~48 s (and would threshold-fire the
+    # caution `po2_low` rule if ACS wasn't compensating). Realistic
+    # hull-micro-breach rate is 0.01-0.1 kPa/min; pass a smaller
+    # `kpa_per_min` override if the demo wants sub-alarm drift.
+    kpa_per_min = float(kwargs.get("kpa_per_min", 1.0))
     # Convert to total mass-loss rate: dp/dt = (RT/V) × dm/dt × (1/M_mix).
     # For air M ≈ 0.029 kg/mol. Invert: dm/dt ≈ dp/dt × V × M / (R·T).
     dp_pa_s = (kpa_per_min * 1000.0) / 60.0
@@ -61,17 +63,20 @@ def _slow_o2_leak(params: ShipParams, kwargs: dict) -> None:
 
 
 def _cdra_regen_fail(params: ShipParams, kwargs: dict) -> None:
-    # Valve fault → one bed saturates, removal drops toward zero. Set a
-    # partial-efficiency default so ppCO2 climbs gradually (~0.2 mmHg/hr
-    # for 6 crew); operator can dial to 0.0 for a hard trip.
-    params.cdra_efficiency = float(kwargs.get("efficiency", 0.3))
+    # Valve fault → one bed saturates (efficiency → 0) AND regen-bed
+    # backflow dumps accumulated CO2 into the cabin (`cdra_bleed_kg_s`).
+    # Demo pacing: 0.05 kg/s bleed crosses the 0.53 kPa caution
+    # threshold (from 0.40) in ~45 s and warning (0.70) in ~2 min.
+    # Operator can dial either independently via kwargs.
+    params.cdra_efficiency = float(kwargs.get("efficiency", 0.0))
+    params.cdra_bleed_kg_s = float(kwargs.get("bleed_kg_s", 0.05))
 
 
 def _ammonia_loop_leak(params: ShipParams, kwargs: dict) -> None:
-    # Default ~0.01 kg/s external leak — ATA pressure sags noticeably
-    # over ~2 min of sim. Below cabin NH3 alarm threshold unless the
-    # leak is cabin-side, which would be a separate anomaly flavour.
-    params.nh3_leak_kg_s = float(kwargs.get("rate_kg_s", 0.01))
+    # Demo default 0.05 kg/s — ATA A pressure crosses the 2.40 MPa
+    # threshold (from 2.62) in ~30 s. Realistic external-loop leaks
+    # are 0.001-0.01 kg/s and take hours, which doesn't read on stage.
+    params.nh3_leak_kg_s = float(kwargs.get("rate_kg_s", 0.05))
 
 
 def _sarj_bearing_drift(params: ShipParams, kwargs: dict) -> None:
