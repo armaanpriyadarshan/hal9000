@@ -30,6 +30,15 @@ CORPUS_DIR = Path(__file__).resolve().parent / "corpus"
 # deployment without editing code.
 CLOUD_FIRST = os.getenv("CLOUD_FIRST", "false").lower() in ("1", "true", "yes")
 
+# When true (default), voice turns fire a background /transcribe call
+# alongside the main /omni reply, just so the server log shows what
+# the ASR heard (`[turn N] debug_transcript='...'`). Adds one extra
+# cloud round-trip per voice turn on a background thread — never
+# blocks the reply, never feeds into RAG or the model's prompt.
+# Set DEBUG_TRANSCRIBE=false in server/.env to kill the extra call
+# entirely (for demo / production where you don't want the overhead).
+DEBUG_TRANSCRIBE = os.getenv("DEBUG_TRANSCRIBE", "true").lower() in ("1", "true", "yes")
+
 SYSTEM_PROMPT = (
     "You are HAL 9000, a Heuristically programmed ALgorithmic computer, "
     "the on-board voice assistant for the crew of this long-duration "

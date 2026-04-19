@@ -22,6 +22,7 @@ Run:
 """
 
 import re
+import threading
 import time
 from contextlib import asynccontextmanager
 from copy import deepcopy
@@ -39,6 +40,7 @@ from config import (
     CLOUD_FIRST,
     COMPLETION_OPTIONS,
     CORPUS_DIR,
+    DEBUG_TRANSCRIBE,
     EMBED_MODEL,
     LLM_MODEL,
     SYSTEM_PROMPT,
@@ -112,37 +114,39 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     turn_no = len([m for m in state.messages if m["role"] == "user"])
     t_turn_start = time.perf_counter()
 
-    # Voice turns arrive with empty query_text. Transcribe first so we
-    # can (a) run RAG against what the user actually said — not against
-    # the previous assistant reply, which drifts semantically across
-    # turns (e.g. a prior 'all systems nominal... emergency procedures'
-    # reply retrieves ammonia chunks, which prime the next turn's
-    # output with ammonia content regardless of what the user asked);
-    # (b) populate the state.messages history with real user content
-    # instead of empty strings. If transcribe fails, fall back to the
-    # old behaviour (pcm to /omni, assistant-reply RAG hint).
-    cloud_pcm: bytes | None = pcm_data
-    t_transcribe_start = t_transcribe_end = time.perf_counter()
-    if pcm_data is not None:
-        t_transcribe_start = time.perf_counter()
-        transcript = _transcribe_audio(pcm_data)
-        t_transcribe_end = time.perf_counter()
-        if transcript:
-            corrected = apply_mishear_fixups(transcript)
-            if corrected != transcript:
+    # Voice turns send the raw PCM straight to /omni — flash-preview's
+    # native audio encoder handles ASR + reasoning in one pass and is
+    # more accurate on domain proper nouns than Cactus's standalone
+    # /transcribe endpoint. If DEBUG_TRANSCRIBE is on, we ALSO fire a
+    # /transcribe call in a background thread purely for the log line
+    # (never feeds into RAG or the prompt). Set DEBUG_TRANSCRIBE=false
+    # in server/.env to kill the extra round-trip for demo/prod.
+    if pcm_data is not None and DEBUG_TRANSCRIBE:
+        def _log_transcript(pcm: bytes, turn: int) -> None:
+            t0 = time.perf_counter()
+            transcript = _transcribe_audio(pcm)
+            dt_ms = int((time.perf_counter() - t0) * 1000)
+            if transcript:
+                corrected = apply_mishear_fixups(transcript)
+                if corrected != transcript:
+                    print(
+                        f"[turn {turn}] debug_transcript={transcript!r} -> {corrected!r} (mishear fixup) ({dt_ms}ms)",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[turn {turn}] debug_transcript={transcript!r} ({dt_ms}ms)",
+                        flush=True,
+                    )
+            else:
                 print(
-                    f"[turn {turn_no}] transcript={transcript!r} -> {corrected!r} (mishear fixup)",
+                    f"[turn {turn}] debug_transcript failed ({dt_ms}ms)",
                     flush=True,
                 )
-                transcript = corrected
-            else:
-                print(f"[turn {turn_no}] transcript={transcript!r}", flush=True)
-            if state.messages and state.messages[-1].get("role") == "user":
-                state.messages[-1] = {**state.messages[-1], "content": transcript}
-            query_text = transcript
-            cloud_pcm = None  # already transcribed; cloud gets text path
-        else:
-            print(f"[turn {turn_no}] transcribe failed; falling back to /omni", flush=True)
+
+        threading.Thread(
+            target=_log_transcript, args=(pcm_data, turn_no), daemon=True
+        ).start()
 
     t_rag_start = time.perf_counter()
     msgs = messages_with_context(query_text)
@@ -172,7 +176,7 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         cloud = cactus_proxy.complete(
             msgs,
             tools=cactus_tools_json(),
-            pcm_data=cloud_pcm,
+            pcm_data=pcm_data,
         )
         if cloud["ok"]:
             response_text = cloud["response"]
@@ -265,11 +269,8 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
         else None
     )
     decode_str = f"{decode_ms}ms" if decode_ms is not None else "n/a"
-    transcribe_ms = _ms(t_transcribe_start, t_transcribe_end)
-    transcribe_str = f"{transcribe_ms}ms " if pcm_data is not None else ""
     print(
-        f"[turn {turn_no}] timing {'transcribe=' + transcribe_str if transcribe_str else ''}"
-        f"rag={_ms(t_rag_start, t_rag_end)}ms "
+        f"[turn {turn_no}] timing rag={_ms(t_rag_start, t_rag_end)}ms "
         f"llm_total={_ms(t_llm_start, t_llm_end)}ms "
         f"ttft={ttft_str} decode={decode_str} "
         f"tts={_ms(t_tts_start, t_tts_end)}ms "
