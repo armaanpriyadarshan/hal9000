@@ -48,9 +48,17 @@ def _build_prompt(
 ) -> str:
     """Mirror of `build_cloud_text_prompt` in cactus_cloud.cpp:124-151."""
     lines = [
-        "You are continuing an existing assistant conversation.",
+        # Identity anchor. Flash-lite otherwise sometimes role-plays a
+        # crew member named in the HAL system prompt (Armaan, Ethan,
+        # Samarjit) when audio input is ambiguous. Spelling it out here
+        # at the top of the proxy prompt stops that.
+        "You are HAL 9000, the ship's onboard AI. Always respond as HAL.",
+        "Never adopt the identity of a crew member (Armaan, Ethan, or "
+        "Samarjit) — they are the humans you are speaking to. Follow "
+        "the persona and rules declared in the [system] block below.",
+        "",
         "Output contract:",
-        "1) Never include role prefixes like 'assistant:'.",
+        "1) Never include role prefixes like 'assistant:' or 'HAL:'.",
         "2) Never include markdown/code fences/backticks.",
         "3) Return only the final assistant answer text unless a tool call is required.",
         "4) If a tool call is required, return ONLY JSON with this exact shape:",
