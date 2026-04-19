@@ -193,7 +193,7 @@ def complete(
     tools: list[dict[str, Any]] | None = None,
     pcm_data: bytes | None = None,
     local_draft: str = "",
-    timeout_s: float = 15.0,
+    timeout_s: float = 25.0,
 ) -> dict[str, Any]:
     """Call the Cactus proxy. Returns:
         {"ok": bool, "response": str, "function_calls": list, "error": str|None}
