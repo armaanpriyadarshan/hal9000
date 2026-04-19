@@ -149,22 +149,29 @@ threshold rules checked each scan:
 |---|---|---|---|
 | `threshold:rapid_depress` | emergency | dP/dt < −0.1 kPa/min | ✓ |
 | `threshold:po2_critical` | emergency | pO₂ < 15 kPa | ✓ |
-| `threshold:pco2_warning` | warning | pCO₂ > 0.70 kPa | — |
-| `threshold:cabin_overtemp` | warning | T > 28 °C | — |
-| `threshold:battery_low` | warning | SoC < 25 % | — |
-| `threshold:ata_pressure_low` | warning | ATA A < 2.40 MPa | — |
-| `threshold:pco2_caution` | caution | pCO₂ > 0.53 kPa | — |
-| `threshold:po2_low` | caution | pO₂ < 20.5 kPa | — |
-| `threshold:cmg_saturation` | caution | momentum > 85 % | — |
+| `threshold:pco2_warning` | warning | pCO₂ > 0.70 kPa | ✓ |
+| `threshold:cabin_overtemp` | warning | T > 28 °C | ✓ |
+| `threshold:battery_low` | warning | SoC < 25 % | ✓ |
+| `threshold:ata_pressure_low` | warning | ATA A < 2.40 MPa | ✓ |
+| `threshold:pco2_caution` | caution | pCO₂ > 0.53 kPa | ✓ |
+| `threshold:po2_low` | caution | pO₂ < 20.5 kPa | ✓ |
+| `threshold:cmg_saturation` | caution | momentum > 85 % | ✓ |
 | `threshold:sarj_current_high` | advisory | drive > 0.5 A | — |
 
-Per-event **60 s cooldown** prevents spam when a condition persists.
-`reset_cooldowns()` between rehearsal runs.
+Every warning + caution rule carries canned text so a flaky cloud
+proxy cannot silence an actual anomaly. Advisory-tier sub-alarm
+drift stays uncanned — noise during proxy outage is worse than
+silence at that severity. Per-event **60 s cooldown**;
+`reset_cooldowns()` between rehearsals.
 
 **Reasoner.** For uncanned events, calls `cactus_proxy.complete` with a
 short gate prompt demanding `ALERT: <line>` or `SILENT: <reason>`.
-Malformed or unreachable-gate replies default to SILENT. Gate latency
-~2-3 s on `gemini-3-flash-preview`.
+`_run_gate` returns one of three verdicts: `alert` (approve speak),
+`silent` (proxy reasoned silent — respect it), `unreachable` (timeout
+/ network / HTTP error). For non-advisory severities, `unreachable`
+falls back to the observer's `event.summary` so HAL still informs the
+crew when the gate is down. Advisory + `unreachable` still maps to
+silent. Gate latency ~2-3 s on `gemini-3-flash-preview`.
 
 **Actor.** Piper TTS (async-offloaded), broadcast to every SSE
 subscriber, inject spoken line as assistant turn so follow-ups
@@ -257,9 +264,12 @@ camera-driven with URL-search-param state.
 | `app/exterior/page.tsx` → `ISSExteriorScene` | `?highlight=<part>` Fresnel-shader-swaps matched meshes. 7 parts in `lib/shipParts.ts`. |
 | `lib/halTools.ts::executeClientDirectives` | Dispatches server's `client_directives` (`set_view`, `highlight_part`, `navigate_to`) by updating URL. |
 | `lib/halAudio.ts` | `MediaRecorder` mic capture, `AudioContext.decodeAudioData()` reply playback, `AnalyserNode` → visualizer ring. |
-| `lib/halVisualizer.ts` | Canvas HAL eye + audio-reactive ring; 5 phases (idle/ready/recording/thinking/speaking). |
+| `lib/halVisualizer.ts` | Canvas HAL eye + audio-reactive ring; 5 phases (idle/ready/recording/thinking/speaking). Animates for **both** Q&A replies *and* proactive alerts — alert audio is routed through HalVoice's singleton AudioContext + analyser via the `hal-alert-audio` CustomEvent bus. |
 | `hooks/useIssLightstreamer.ts` | Real NASA Lightstreamer PUIs for ambient HUD. |
-| `hooks/useHalAlerts.ts` | SSE subscriber. Plays alert WAV via persistent `AudioContext`, optionally auto-focuses scene on `alert.module`, exposes `lastAlert`. |
+| `hooks/useHalAlerts.ts` | SSE subscriber. Dispatches `hal-alert-audio` CustomEvent so HalVoice plays through its singleton AudioContext + analyser (visualizer animates during proactive alerts). Optionally auto-focuses scene on `alert.module`. Exposes `lastAlert` + bounded `alertHistory`; accepts `mute` / `historyLimit` options. |
+| `components/HalAlertHud.tsx` | Top-center banner (clear of HAL's visualizer at the bottom). Severity-aware: Class 1 emergencies get warm-red border + glow + "PRIORITY" + ISS threat name (`RAPID DEPRESS`, `ATMOSPHERE · O2 DEPLETION`). Class 2-4 stay monochrome. Mirrors the ISS Caution & Warning class system. |
+| `components/EmergencyFlash.tsx` | Full-screen warm-red vignette pulse on Class 1. CSS-only keyframe animation, GPU-composited, `pointer-events-none`. React `key={signature}` restarts the animation on each new emergency. |
+| `app/ops/page.tsx` | Operator console at `/ops` — inject anomalies, fire canned alerts, pause/enable/reset cooldowns, live 2 Hz telemetry table, SSE alert log. Mutes audio + disables auto-focus so the operator's laptop doesn't compete with the audience's. |
 
 ## API
 
@@ -334,7 +344,7 @@ directly.
 ## Tests
 
 ```bash
-server/.venv/bin/pytest server/tests                  # 69 tests, ~0.3s
+server/.venv/bin/pytest server/tests                  # 71 tests, ~0.3s
 cd client && pnpm lint
 ```
 
