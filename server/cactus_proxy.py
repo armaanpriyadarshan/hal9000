@@ -41,6 +41,29 @@ _TRAILING_TOOL_CALL_RE = re.compile(
 _DEFAULT_BASE = "https://104.198.76.3/api/v1"
 
 
+# Known ASR mishears observed on gemini-3-flash-preview via Cactus's
+# /transcribe endpoint (2026-04-18). Applied after transcription so the
+# RAG query and prompt see the canonical station vocabulary rather than
+# phonetic collisions. Grow this list when new mishears show up in the
+# `[turn N] transcript='…'` log line — only add patterns you've
+# personally heard mis-transcribe, so we don't silently rewrite
+# legitimate user input.
+_MISHEAR_FIXUPS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\btboly\b", re.IGNORECASE), "tranquility"),
+    (re.compile(r"\bq-?ville\b", re.IGNORECASE), "cupola"),
+]
+
+
+def apply_mishear_fixups(text: str) -> str:
+    """Replace known phonetic ASR mistakes with the station's canonical
+    module names. Returns the original text unchanged when no pattern
+    matches — safe to call on every transcript."""
+    fixed = text
+    for pattern, replacement in _MISHEAR_FIXUPS:
+        fixed = pattern.sub(replacement, fixed)
+    return fixed
+
+
 def _transcribe_audio(pcm_data: bytes, timeout_s: float = 10.0) -> str | None:
     """Send PCM to Cactus proxy `/transcribe` and return the text. Returns
     None on any failure so caller can fall back to /omni (which handles

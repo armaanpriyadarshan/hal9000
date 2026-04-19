@@ -34,7 +34,7 @@ from pydantic import BaseModel
 from cactus_runtime import CactusSession
 
 import cactus_proxy
-from cactus_proxy import _transcribe_audio
+from cactus_proxy import _transcribe_audio, apply_mishear_fixups
 from config import (
     CLOUD_FIRST,
     COMPLETION_OPTIONS,
@@ -125,7 +125,15 @@ def run_turn(query_text: str, pcm_data: bytes | None = None) -> dict[str, Any]:
     if pcm_data is not None:
         transcript = _transcribe_audio(pcm_data)
         if transcript:
-            print(f"[turn {turn_no}] transcript={transcript!r}", flush=True)
+            corrected = apply_mishear_fixups(transcript)
+            if corrected != transcript:
+                print(
+                    f"[turn {turn_no}] transcript={transcript!r} -> {corrected!r} (mishear fixup)",
+                    flush=True,
+                )
+                transcript = corrected
+            else:
+                print(f"[turn {turn_no}] transcript={transcript!r}", flush=True)
             if state.messages and state.messages[-1].get("role") == "user":
                 state.messages[-1] = {**state.messages[-1], "content": transcript}
             query_text = transcript
