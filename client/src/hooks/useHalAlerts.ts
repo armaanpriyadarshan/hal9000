@@ -94,7 +94,16 @@ const INTERIOR_MODULES = new Set([
 export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
   const {
     enabled = true,
-    autoFocus = true,
+    // Default off per the 2026-04-19 test session. Auto-navigating
+    // pages when an alert fires caused a mount race — the fire-page's
+    // HalAlertHud + EmergencyFlash unmounted before they could render
+    // the alert, and the destination page's fresh useHalAlerts had
+    // no lastAlert state. The UX is also better: HAL announces in
+    // place, then asks the crew if they'd like to see the affected
+    // region, and emits navigate_to / highlight_part in response to
+    // a voice "yes". Callers who want the old behaviour can still
+    // opt in explicitly.
+    autoFocus = false,
     mute = false,
     historyLimit = 50,
   } = opts;
