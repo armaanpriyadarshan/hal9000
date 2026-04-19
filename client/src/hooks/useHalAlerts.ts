@@ -17,12 +17,27 @@ import { executeClientDirectives } from "@/lib/halTools";
  */
 export const HAL_ALERT_EVENT = "hal-alert-audio";
 
-/** sessionStorage key. Keeping the last alert here lets it survive
- *  a page navigation (HAL's tool-call → router.push) so the banner,
- *  vignette, and downstream halTools `risk=` enrichment stay alive
- *  across routes. Per-tab scope (sessionStorage, not localStorage)
- *  so operator and audience tabs don't stomp each other. */
+/** sessionStorage keys. Two things persist across navigations:
+ *
+ *   1. `LAST_ALERT_KEY` — the single most-recent alert, used to drive
+ *      the banner, EmergencyFlash, and anything bound to lastAlert
+ *      when the page remounts mid-navigation.
+ *
+ *   2. `MODULE_SEVERITY_KEY` — a map of module → severity built up
+ *      as alerts arrive. The halTools risk-enrichment reads this
+ *      when HAL emits a navigate_to / highlight_part so the
+ *      destination scene can tint based on whichever alert actually
+ *      matches the target module. Previously riskParam only looked
+ *      at the latest alert — if a later cooldown re-fire had
+ *      overwritten the interesting emergency with an unrelated
+ *      caution, the scene rendered blue because the module IDs
+ *      didn't match.
+ *
+ * Per-tab (sessionStorage, not localStorage) so operator/audience
+ * windows don't stomp each other.
+ */
 const LAST_ALERT_KEY = "hal9000.lastAlert";
+const MODULE_SEVERITY_KEY = "hal9000.moduleSeverity";
 
 export function readPersistedAlert(): HalAlert | null {
   if (typeof window === "undefined") return null;
@@ -45,6 +60,33 @@ function writePersistedAlert(alert: HalAlert | null): void {
     }
   } catch {
     /* quota / disabled — not fatal */
+  }
+}
+
+/** Read the module-severity index. Returns a plain dict; callers
+ *  look up by module name to get the severity of the most-recent
+ *  alert that targeted that module. */
+export function readModuleSeverityIndex(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.sessionStorage.getItem(MODULE_SEVERITY_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function updateModuleSeverityIndex(alert: HalAlert): void {
+  if (typeof window === "undefined") return;
+  if (!alert.module) return;
+  try {
+    const idx = readModuleSeverityIndex();
+    idx[alert.module] = alert.severity;
+    window.sessionStorage.setItem(MODULE_SEVERITY_KEY, JSON.stringify(idx));
+  } catch {
+    /* no-op */
   }
 }
 
@@ -171,6 +213,7 @@ export function useHalAlerts(opts: UseHalAlertsOptions = {}) {
 
       setLastAlert(alert);
       writePersistedAlert(alert);
+      updateModuleSeverityIndex(alert);
       setAlertHistory((prev) => {
         const next = [alert, ...prev];
         return next.length > historyLimit ? next.slice(0, historyLimit) : next;

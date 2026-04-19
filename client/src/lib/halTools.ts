@@ -1,7 +1,10 @@
 "use client";
 
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
-import { readPersistedAlert } from "@/hooks/useHalAlerts";
+import {
+  readModuleSeverityIndex,
+  readPersistedAlert,
+} from "@/hooks/useHalAlerts";
 
 export type ClientToolCtx = {
   router: AppRouterInstance;
@@ -25,11 +28,13 @@ const RISK_VALUES = new Set(["advisory", "caution", "warning", "emergency"]);
  * Priority order:
  *   1. Explicit `risk` in tool args (useHalAlerts autoFocus still
  *      passes it when enabled; future LLM tool schemas might).
- *   2. Derived from the currently-active alert in sessionStorage,
- *      when the tool target matches the alert's module. This is the
- *      key line: it keeps the destination scene tinted red after HAL
- *      tool-calls in response to a "show me" voice reply, without
- *      requiring the LLM to hand-pass the severity every time.
+ *   2. Module-severity index from sessionStorage — every alert that
+ *      names a module writes `module → severity` here, so we find
+ *      the right severity even when later cooldown re-fires have
+ *      overwritten `lastAlert` with something unrelated.
+ *   3. Fallback to the single most-recent alert if its module
+ *      happens to match (legacy path; rarely fires now that the
+ *      index exists).
  */
 function riskParam(args: Record<string, unknown>): string {
   const explicit = typeof args.risk === "string" ? args.risk : "";
@@ -40,6 +45,13 @@ function riskParam(args: Record<string, unknown>): string {
     typeof args.part === "string" ? args.part :
     typeof args.area === "string" ? args.area : "";
   if (!candidateModule) return "";
+
+  const idx = readModuleSeverityIndex();
+  const indexed = idx[candidateModule];
+  if (indexed && RISK_VALUES.has(indexed)) {
+    return `&risk=${encodeURIComponent(indexed)}`;
+  }
+
   const last = readPersistedAlert();
   if (last && last.module === candidateModule && RISK_VALUES.has(last.severity)) {
     return `&risk=${encodeURIComponent(last.severity)}`;

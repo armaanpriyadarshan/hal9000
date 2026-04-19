@@ -40,10 +40,12 @@ function useResetOnHardReload() {
     if (RESET_DONE.has(key)) return;
     RESET_DONE.add(key);
 
-    // Clear client-side persistence too so the banner doesn't
-    // resurrect a stale alert the next tick.
+    // Clear client-side persistence too so neither the banner
+    // resurrects a stale alert nor the halTools risk-enrichment
+    // latches onto a severity from the previous session.
     try {
       window.sessionStorage.removeItem("hal9000.lastAlert");
+      window.sessionStorage.removeItem("hal9000.moduleSeverity");
     } catch {
       /* quota / disabled — not fatal */
     }
