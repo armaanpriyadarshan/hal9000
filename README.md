@@ -203,6 +203,49 @@ subscriber, inject spoken line as assistant turn so follow-ups
  "gate":"llm"}
 ```
 
+The stream keeps idle connections alive with a `: ka` comment
+every 15 s — Chromium otherwise tears down long-idle EventSources
+and the audience browser stops receiving alerts.
+
+**Resolution broadcasts.** When the crew tells HAL to run a
+procedure (see below) and `execute_procedure` succeeds, the
+handler fires a second `AlertPayload` on the same SSE channel
+with `severity: "advisory"`, `audio_b64: ""` (no double-voice —
+HAL already speaks via the tool ack), `gate: "resolved"`, and
+the procedure's confirmation line as the `text`. The client
+treats this identically to any other alert: banner swaps to the
+resolution text, module-severity index downgrades to advisory
+(so subsequent scene transitions render blue not red), and the
+conversation history gets the closure line as an assistant turn.
+
+### Emergency response procedures (`server/procedures.py`, `tools.execute_procedure`)
+
+Five state-mutation procedures HAL can invoke on crew command.
+Each reverses the damage of an anomaly in the physics sim so the
+crew experiences a real recovery (leak stops, CO₂ scrubbed,
+temperature drops, etc.).
+
+| Action | Effect | Spoken ack |
+|---|---|---|
+| `seal_breach` | `leak_rate_kg_s → 0`, drop `slow_o2_leak` | *"Hatches closed. Cabin is sealed. Pressure loss arrested."* |
+| `recover_cdra` | CDRA efficiency/bleed reset, pCO₂ → 0.40 | *"CDRA secondary bed online. Carbon dioxide scrubbing restored."* |
+| `isolate_nh3_loop` | `nh3_leak_kg_s → 0` | *"Ammonia loop A isolated. Leak halted. Loop B carrying full load."* |
+| `suppress_fire` | `mtl_pump_health → 1.0`, cabin T → 22.5 °C | *"Fire suppression deployed. Affected segment depressurised and cleared."* |
+| `desaturate_cmgs` | `cmg_momentum_frac → 0.10` | *"Desaturation burn complete. Control-moment-gyro momentum nominal."* |
+
+Invoked as a server-side tool — `location: "server"` on the
+`ToolSpec`, handler is `_execute_procedure_handler` in `tools.py`.
+Each procedure returns its confirmation string, which `dispatch()`
+uses as the spoken ack (overriding the generic `ack_template`).
+The handler also fires the resolution broadcast described above
+so the client UI drops out of emergency state.
+
+`SYSTEM_PROMPT` teaches HAL to map natural-language voice commands
+to the canonical action enum (`"close the hatches"` → `seal_breach`,
+`"fix CDRA"` → `recover_cdra`, `"isolate ammonia"` → `isolate_nh3_loop`,
+etc.) and to emit the tool call directly on crew instruction rather
+than asking for redundant confirmation.
+
 ### Retrieval (`server/rag.py`)
 
 Second Cactus handle on `Qwen3-Embedding-0.6B`, separate from chat so
@@ -279,7 +322,7 @@ camera-driven with URL-search-param state.
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `app/page.tsx` → `ISSInteriorScene`          | `?area=<module>` teleports camera to named GLB node. 10 canonical modules in `lib/interiorAreas.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `app/exterior/page.tsx` → `ISSExteriorScene` | `?highlight=<part>` Fresnel-shader-swaps matched meshes. 7 parts in `lib/shipParts.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `lib/halTools.ts::executeClientDirectives`   | Dispatches server's `client_directives` (`set_view`, `highlight_part`, `navigate_to`) by updating URL.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `lib/halTools.ts::executeClientDirectives`   | Dispatches server's `client_directives` (`set_view`, `highlight_part`, `navigate_to`) by updating URL. Auto-enriches the URL with `&risk=<severity>` looked up from the `module → severity` index (or the last alert) so Class 1 / Class 2 targets render in warm-red even when HAL's tool call didn't pass severity explicitly. |
 | `lib/halAudio.ts`                            | `MediaRecorder` mic capture, `AudioContext.decodeAudioData()` reply playback, `AnalyserNode` → visualizer ring.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `lib/halVisualizer.ts`                       | Canvas HAL eye + audio-reactive ring; 5 phases (idle/ready/recording/thinking/speaking). Animates for **both** Q&A replies *and* proactive alerts — alert audio is routed through HalVoice's singleton AudioContext + analyser via the `hal-alert-audio` CustomEvent bus.                                                                                                                                                                                                                                                                                                                                                                  |
 | `hooks/useIssLightstreamer.ts`               | Real NASA Lightstreamer PUIs for ambient HUD.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -307,6 +350,7 @@ Server on `0.0.0.0:8000`. All JSON unless noted.
 | POST   | `/api/debug/fire_alert`             | `{name, severity, text, module, use_llm_gate}` | `{ok, fired, subscriber_count, payload}`                     |
 | POST   | `/api/debug/alerts/pause`/`enable`  | —                                              | `{ok, alerts_enabled}`                                       |
 | POST   | `/api/debug/alerts/reset_cooldowns` | —                                              | `{ok}`                                                       |
+| POST   | `/api/debug/full_reset`             | —                                              | `{ok:true}` — sim back to nominal, history wiped, alerts re-enabled |
 
 
 `source` = `"local"` | `"cloud"` per turn. Debug endpoints are not
@@ -330,6 +374,107 @@ curl -N localhost:8000/api/alerts/stream
 # Inspect HAL's current world model
 curl localhost:8000/api/debug/telemetry | jq .pp_co2_kpa
 ```
+
+## Closed-loop emergency flow
+
+The full demo cycle for a Class 1 emergency, end-to-end, exercising
+every pipeline added in this codebase:
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ 1. Operator clicks /ops → Class 1 → Rapid Depress              │
+│    ├─ POST /api/debug/inject { slow_o2_leak, kpa_per_min: 15 } │
+│    └─ POST /api/debug/fire_alert { severity:emergency, … }     │
+│                                                                │
+│ 2. Sim state mutates (leak rate active, p_total falling)       │
+│                                                                │
+│ 3. Alert broadcasts on SSE → audience browser                  │
+│    ├─ HalAlertHud red border + CLASS 1 · RAPID DEPRESS banner  │
+│    ├─ EmergencyFlash warm-red vignette pulses 3×               │
+│    ├─ HalVoice plays procedure voice line via singleton AC     │
+│    ├─ halVisualizer eye + ring animate during speech           │
+│    └─ module-severity index writes main_modules → emergency    │
+│                                                                │
+│ 4. Observer threshold:rapid_depress also fires naturally as    │
+│    dP/dt crosses −0.1 kPa/min — redundant canned alert.        │
+│                                                                │
+│ 5. Crew presses Space, says "yes, highlight the main modules" │
+│                                                                │
+│ 6. HAL reads its own offer from history + SYSTEM_PROMPT nudge, │
+│    emits highlight_part(part="main_modules") on /api/voice.   │
+│    Dispatch → client_directive → halTools executes:            │
+│    ├─ Reads module-severity index → appends &risk=emergency    │
+│    ├─ router.push /exterior?highlight=main_modules&risk=…      │
+│    └─ Banner persists (sessionStorage), scene tints warm-red    │
+│                                                                │
+│ 7. Crew presses Space, says "close the hatches"               │
+│                                                                │
+│ 8. HAL → execute_procedure(action="seal_breach")               │
+│    ├─ Handler runs procedures.seal_breach(state)               │
+│    │    leak_rate_kg_s = 0, slow_o2_leak removed               │
+│    ├─ Dynamic ack: "Hatches closed. Cabin is sealed. …"        │
+│    ├─ Resolution broadcast on SSE: severity=advisory           │
+│    │    audio_b64="", gate="resolved"                          │
+│    └─ HAL speaks ack via dispatch TTS (single voice play)      │
+│                                                                │
+│ 9. Client receives resolution:                                 │
+│    ├─ HalAlertHud swaps to advisory style + "Hatches closed…" │
+│    ├─ module-severity index → main_modules: advisory            │
+│    │    (next navigation renders blue, not red)                │
+│    └─ Conversation history has the closure line                 │
+│                                                                │
+│ 10. Telemetry on /ops: p_total stops falling, active_anomalies │
+│     empty. Emergency resolved, crew-confirmed, state-backed.   │
+└────────────────────────────────────────────────────────────────┘
+```
+
+Each class-1 scenario on `/ops` (Rapid Depress, O₂ Depletion, Fire ·
+Destiny, Tox Atm · NH3) maps to an anomaly injection + matching
+procedure, so every emergency has a crew-driven recovery path. The
+four scenarios are listed in `CLASS_1_SCENARIOS` in
+`client/src/app/ops/page.tsx`.
+
+## Known quirks (from 2026-04-19 testing)
+
+Real behaviour that surfaced during a full-pipeline drive:
+
+- **Transparent hologram flicker on rotation.** The exterior Fresnel
+  material runs `transparent: true` + `depthWrite: false`; near-
+  coplanar ISS geometry makes Three.js's per-frame transparent
+  sort flip ties during rotation, producing brief blank spots.
+  Tried `depthWrite` + `polygonOffset` + render-order stacking, then
+  `transparent: false`; both fixes eliminated the flicker but also
+  killed the see-through hologram aesthetic. Reverted. Accepted as
+  character.
+- **Cloud-proxy gate timeouts.** `gemini-3-flash-preview` is usually
+  ~2-3 s but occasionally spikes to the 25 s timeout. The ORA
+  `_run_gate` returns `unreachable`; non-advisory events fall back
+  to `event.summary` (`gate=fallback_summary`) so HAL still informs
+  the crew. Advisory goes silent by design.
+- **Cooldown re-fires on non-recovering state.** CMG saturation and
+  elevated pCO₂ both stay above threshold indefinitely once pushed
+  there (sim has no auto-desat / auto-scrub), so their threshold
+  rules re-fire every 60 s of cooldown. Click Pause on `/ops` to
+  silence during testing, or `execute_procedure(desaturate_cmgs)` /
+  `execute_procedure(recover_cdra)` to actually resolve.
+- **LLM confirmation-loop conservatism.** Flash-3 occasionally
+  re-offers a procedure it's already offered even after the crew
+  says "yes". Most commonly fixed by a more explicit voice ("yes,
+  close the hatches now" vs just "yes"). Covered in the prompt but
+  not 100 % reliable.
+- **Voice-turn RAG drift.** Voice turns have no user transcript
+  available to the server, so `query_text` is set to the most-recent
+  assistant line as a topical hint. Works well when the prior line
+  was the operator-fired alert; fuzzes when the stack is deep with
+  repeated cooldown re-fires.
+- **Hard-refresh auto-reset.** `HalAlertHud::useResetOnHardReload`
+  fires `POST /api/debug/full_reset` on F5/Cmd-R of `/` or
+  `/exterior`. `/ops` does NOT trigger the reset — operator can
+  refresh their console without wiping state.
+- **AudioContext autoplay unlock.** Chromium suspends AudioContext
+  on fresh page loads until a user gesture. Alert audio won't play
+  until the crew has pressed Space at least once per session. Not
+  fixable client-side; documented in the operator checklist.
 
 ## System prompt composition
 
@@ -364,7 +509,7 @@ directly.
 ## Tests
 
 ```bash
-server/.venv/bin/pytest server/tests                  # 71 tests, ~0.3s
+server/.venv/bin/pytest server/tests                  # 72 tests, ~0.3s
 cd client && pnpm lint
 ```
 
