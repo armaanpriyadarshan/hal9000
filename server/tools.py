@@ -13,8 +13,17 @@ from typing import Any, Callable, Literal, TypedDict
 
 from jsonschema import Draft202012Validator, ValidationError
 
+from telemetry import ShipState
+
 
 Location = Literal["server", "client"]
+
+
+# Server-tool handlers may optionally return a string, which overrides
+# the ack_template for that call. Procedures use this to speak the
+# human-readable result ("Hatches closed. Cabin is sealed.") instead
+# of a generic template — the procedure knows exactly what happened.
+HandlerReturn = str | None
 
 
 @dataclass(frozen=True)
@@ -25,7 +34,8 @@ class ToolSpec:
     validated arguments. Every `{placeholder}` in the template must
     correspond to a key that is required (or otherwise guaranteed present)
     by `parameters` — otherwise `dispatch()` will raise KeyError at
-    format time.
+    format time. Server-tool handlers may also return a string to
+    override the rendered ack for that invocation.
     """
 
     name: str
@@ -33,7 +43,33 @@ class ToolSpec:
     parameters: dict[str, Any]
     location: Location
     ack_template: str
-    handler: Callable[[dict[str, Any]], None] | None = None
+    handler: Callable[[dict[str, Any]], HandlerReturn] | None = None
+
+
+# Module-level reference to the running physics sim, so server-tool
+# handlers can mutate state. server.py sets this once in the FastAPI
+# lifespan after ShipState is constructed.
+_ship_state: ShipState | None = None
+
+
+def set_ship_state(ship: ShipState | None) -> None:
+    global _ship_state
+    _ship_state = ship
+
+
+def _execute_procedure_handler(args: dict[str, Any]) -> HandlerReturn:
+    """Dispatch an emergency-response procedure into the physics sim.
+    Returns the procedure's confirmation line so HAL speaks the
+    situation-specific ack ("Hatches closed. Cabin is sealed.") rather
+    than the generic ack_template."""
+    # Import here to avoid a circular at module import; procedures
+    # depends on telemetry which is fine but keeps this file's
+    # imports minimal.
+    from procedures import execute as execute_procedure
+
+    if _ship_state is None:
+        raise RuntimeError("physics sim not initialised")
+    return execute_procedure(_ship_state, args["action"])
 
 
 class ClientDirective(TypedDict):
@@ -113,6 +149,46 @@ TOOL_SPECS: list[ToolSpec] = [
         },
         location="client",
         ack_template="Highlighting the {part}.",
+    ),
+    ToolSpec(
+        name="execute_procedure",
+        description=(
+            "Execute an on-board emergency-response procedure. Only "
+            "call this when the crew has explicitly requested a fix "
+            "or confirmed an offer to apply a procedure. The named "
+            "action mutates the ship state to reverse the damage of "
+            "the corresponding anomaly (closes hatches to stop a "
+            "leak, restores CDRA to scrub accumulated CO2, etc.). "
+            "Accepts one of:\n"
+            "- seal_breach: close hatches, stop cabin leak\n"
+            "- recover_cdra: restore CDRA, scrub elevated pCO2\n"
+            "- isolate_nh3_loop: shut off leaking external ammonia "
+            "loop and halt cabin-side NH3 ingress\n"
+            "- suppress_fire: deploy fire suppression, restore "
+            "cabin cooling\n"
+            "- desaturate_cmgs: execute desaturation burn, zero "
+            "stored CMG momentum\n"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "seal_breach",
+                        "recover_cdra",
+                        "isolate_nh3_loop",
+                        "suppress_fire",
+                        "desaturate_cmgs",
+                    ],
+                    "description": "Canonical name of the procedure to run.",
+                },
+            },
+            "required": ["action"],
+        },
+        location="server",
+        ack_template="Executing {action}.",  # overridden by handler return
+        handler=_execute_procedure_handler,
     ),
     ToolSpec(
         name="navigate_to",
@@ -209,10 +285,11 @@ def dispatch(function_calls: Any) -> DispatchResult:
                 {"name": name, "arguments": args, "reason": e.message}
             )
             continue
+        dynamic_ack: str | None = None
         if spec.location == "server":
             if spec.handler is not None:
                 try:
-                    spec.handler(args)
+                    dynamic_ack = spec.handler(args)
                 except Exception as e:  # noqa: BLE001
                     result.failed_calls.append(
                         {"name": name, "arguments": args, "reason": f"handler error: {e}"}
@@ -221,7 +298,8 @@ def dispatch(function_calls: Any) -> DispatchResult:
             # Server tool with no handler is a no-op — still emit the ack.
         else:
             result.client_directives.append({"name": name, "arguments": args})
-        result.ack_text = _append(result.ack_text, spec.ack_template.format(**args))
+        ack_line = dynamic_ack if dynamic_ack else spec.ack_template.format(**args)
+        result.ack_text = _append(result.ack_text, ack_line)
     if result.failed_calls:
         n = len(result.failed_calls)
         if result.ack_text:

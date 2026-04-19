@@ -360,6 +360,10 @@ async def lifespan(_app: FastAPI):
     state.ship_task = asyncio.create_task(
         run_loop(state.ship, state.ship_stop, tick_hz=1.0)
     )
+    # Let the tools registry mutate the ship via server-tool handlers
+    # (see tools.py _execute_procedure_handler).
+    import tools as tools_module
+    tools_module.set_ship_state(state.ship)
     print("Telemetry simulator running at 1 Hz.", flush=True)
 
     # Spin up the ORA (Observer-Reasoner-Actor) loop. Scans sim state
