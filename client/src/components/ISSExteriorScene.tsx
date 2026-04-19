@@ -100,29 +100,29 @@ function makeMaterial(highlighted: boolean, risk: HighlightRisk = "none"): THREE
   return new THREE.ShaderMaterial({
     uniforms: {
       baseColor: { value: baseColor },
+      // Alpha is now always 1.0 at the base — transparency comes
+      // from the Fresnel rim only. See depthWrite / transparent
+      // notes below for why this matters.
       rimColor: { value: rimColor },
       rimPower: { value: highlighted ? 1.4 : 2.5 },
-      baseAlpha: { value: highlighted ? 0.85 : 0.2 },
-      rimAlpha: { value: highlighted ? 1.0 : 0.9 },
+      baseAlpha: { value: 1.0 },
+      rimAlpha: { value: 1.0 },
     },
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,
     side: THREE.FrontSide,
-    transparent: true,
-    // Write depth so overlapping translucent meshes stop re-sorting
-    // every frame during rotation. The GLB has many near-coplanar
-    // surfaces (inner/outer shells); without depthWrite the sort
-    // order flipped with every camera rotation, blinking whole
-    // panels in and out. Setting depthWrite=true trades "see through
-    // everything" for rock-stable depth ordering — which is what
-    // actually reads as a hologram, not flicker.
+    // Opaque render path. The GLB contains many near-coplanar
+    // surfaces (inner/outer shells, adjacent panels); with
+    // transparent+depthWrite=false Three.js re-sorted all of them
+    // every frame, and tied distances made panels blink in and out
+    // during rotation. Making both materials opaque uses the single-
+    // pass opaque render path with depth test/write, which is
+    // completely sort-stable. The hologram aesthetic now comes from
+    // the Fresnel shader's rim glow + bloom post-process, not from
+    // alpha blending.
+    transparent: false,
     depthWrite: true,
-    // Push highlighted meshes slightly out of z so they never fight
-    // coplanar defaults. Factor + units empirically small — enough
-    // to separate stacks, not visible as displacement.
-    polygonOffset: true,
-    polygonOffsetFactor: highlighted ? -1 : 1,
-    polygonOffsetUnits: highlighted ? -1 : 1,
+    depthTest: true,
   });
 }
 
@@ -166,12 +166,15 @@ function HologramModel({
   // swaps blue↔red when the scene transitions between routine
   // highlighting and an active alert.
   const highlightedMat = useMemo(() => makeMaterial(true, risk), [risk]);
+  // Edge wireframe — also opaque now for the same sort-stability
+  // reasons. The lighter color keeps the wireframe reading as a
+  // highlight overlay on the opaque Fresnel body.
   const lineMat = useMemo(
     () =>
       new THREE.LineBasicMaterial({
         color: 0xccf5ff,
-        transparent: true,
-        opacity: 0.85,
+        transparent: false,
+        depthTest: true,
       }),
     [],
   );
