@@ -41,6 +41,43 @@ _TRAILING_TOOL_CALL_RE = re.compile(
 _DEFAULT_BASE = "https://104.198.76.3/api/v1"
 
 
+def _transcribe_audio(pcm_data: bytes, timeout_s: float = 10.0) -> str | None:
+    """Send PCM to Cactus proxy `/transcribe` and return the text. Returns
+    None on any failure so caller can fall back to /omni (which handles
+    audio end-to-end internally).
+
+    We split transcribe from complete so we can log what the ASR heard
+    — without it we're blind to whether bugs are audio-recognition or
+    reasoning. Mirrors `cloud_transcribe_request` in cactus_cloud.cpp:292."""
+    api_key = os.environ.get("CACTUS_CLOUD_KEY", "").strip()
+    if not api_key:
+        return None
+    base = os.environ.get("CACTUS_CLOUD_API_BASE", _DEFAULT_BASE).rstrip("/")
+    wav = _pcm_to_wav_bytes(pcm_data)
+    payload = {
+        "audio": base64.b64encode(wav).decode("ascii"),
+        "mime_type": "audio/wav",
+        "language": "en-US",
+    }
+    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
+    strict_ssl = os.environ.get("CACTUS_CLOUD_STRICT_SSL", "").lower() in ("1", "true", "yes")
+    try:
+        with httpx.Client(timeout=timeout_s, verify=strict_ssl) as client:
+            r = client.post(f"{base}/transcribe", headers=headers, json=payload)
+    except (httpx.TimeoutException, httpx.RequestError):
+        return None
+    if r.status_code >= 400:
+        return None
+    try:
+        body = r.json()
+    except json.JSONDecodeError:
+        return None
+    transcript = (
+        body.get("transcript") or body.get("text") or body.get("response") or ""
+    ).strip()
+    return transcript or None
+
+
 def _build_prompt(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None,
@@ -73,6 +110,9 @@ def _build_prompt(
         lines.append(f"[{role}] {content}")
     if tools:
         lines.extend([
+            "",
+            "Reminder: you are HAL 9000 answering the crew. Reply as HAL.",
+            "Never speak as a crew member (Armaan, Ethan, Samarjit).",
             "",
             "Available tools JSON (use only these tool names and arguments):",
             json.dumps(tools),
@@ -138,20 +178,46 @@ def complete(
     `ok=True` means the proxy returned a usable reply; `ok=False`
     means the caller should fall back to local. Errors are stringified
     in `error` for logging only.
+
+    Voice turns: we transcribe the audio first via /transcribe, log
+    what was heard, and then send the transcript to /text. This
+    separates ASR from reasoning so bugs are debuggable. If the
+    transcribe call fails, falls back to /omni which handles audio
+    end-to-end internally.
     """
     api_key = os.environ.get("CACTUS_CLOUD_KEY", "").strip()
     if not api_key:
         return {"ok": False, "response": "", "function_calls": [], "error": "missing_cactus_cloud_key"}
     base = os.environ.get("CACTUS_CLOUD_API_BASE", _DEFAULT_BASE).rstrip("/")
-    model = os.environ.get("CACTUS_CLOUD_MODEL", "gemini-3.1-flash-lite-preview")
+    model = os.environ.get("CACTUS_CLOUD_MODEL", "gemini-3-flash-preview")
 
-    prompt_text = _build_prompt(messages, tools, local_draft)
+    # Transcribe first so the log shows what the proxy's ASR actually
+    # heard. The transcript also feeds into the /text call, giving us
+    # tighter control over the prompt than /omni (which mixes ASR and
+    # reasoning).
+    messages_for_prompt = messages
+    if pcm_data:
+        transcript = _transcribe_audio(pcm_data)
+        if transcript is not None:
+            print(f"  [transcribe] {transcript!r}", flush=True)
+            # Replace the last user message's (empty) content with the
+            # transcript so the model reasons over text instead of PCM.
+            messages_for_prompt = list(messages)
+            for i in range(len(messages_for_prompt) - 1, -1, -1):
+                if messages_for_prompt[i].get("role") == "user":
+                    messages_for_prompt[i] = {**messages_for_prompt[i], "content": transcript}
+                    break
+
+    prompt_text = _build_prompt(messages_for_prompt, tools, local_draft)
     payload: dict[str, Any] = {
         "text": prompt_text,
         "language": "en-US",
         "model": model,
     }
-    if pcm_data:
+    if pcm_data and messages_for_prompt is messages:
+        # Transcribe failed; fall back to /omni with raw audio. Less
+        # controllable but at least Cactus's internal ASR gets a shot.
+        print("  [transcribe] failed — falling back to /omni", flush=True)
         wav = _pcm_to_wav_bytes(pcm_data)
         payload["audio"] = base64.b64encode(wav).decode("ascii")
         payload["audio_mime_type"] = "audio/wav"
