@@ -111,16 +111,24 @@ Seven injectable anomalies — each is a parameter modifier on
 
 | Name | Severity | Module | Mechanism |
 |---|---|---|---|
-| `slow_o2_leak` | caution | main_modules | `leak_rate_kg_s` from `kpa_per_min` (realistic 0.013, demo 0.5+) |
-| `cdra_regen_fail` | caution | tranquility | `cdra_efficiency` (default 0.3) |
-| `ammonia_loop_leak` | warning | s0_truss | `nh3_leak_kg_s` (default 0.01) |
-| `sarj_bearing_drift` | advisory | s0_truss | additive `sarj_extra_current_a` (0.5 A) |
-| `cmg_saturation` | caution | — | writes `cmg_momentum_frac` directly |
-| `iatcs_mtl_pump_fail` | warning | destiny | `mtl_pump_health` (0.0) |
-| `sabatier_catalyst_cool` | advisory | tranquility | `sabatier_health` |
+| `slow_o2_leak` | caution | main_modules | `leak_rate_kg_s` from `kpa_per_min` — demo default **1.0**; pO₂ crosses 20.5 kPa ACS trigger in ~48 s |
+| `cdra_regen_fail` | caution | tranquility | `cdra_efficiency=0` + `cdra_bleed_kg_s=0.05` — simulates regen-valve backflow; pCO₂ crosses caution (0.53 kPa) in ~45 s, warning (0.70) in ~2 min |
+| `ammonia_loop_leak` | warning | s0_truss | `nh3_leak_kg_s` default **0.05** — ATA pressure crosses 2.40 MPa threshold in ~30 s |
+| `sarj_bearing_drift` | advisory | s0_truss | additive `sarj_extra_current_a` (0.5 A, instant; fires `threshold:sarj_current_high`) |
+| `cmg_saturation` | caution | — | writes `cmg_momentum_frac` directly (default 0.88, fires `threshold:cmg_saturation`) |
+| `iatcs_mtl_pump_fail` | warning | destiny | `mtl_pump_health=0` + 0.1 °C/s cabin-temp drift; overtemp in ~55 s |
+| `sabatier_catalyst_cool` | advisory | tranquility | `sabatier_health` (flag only; no direct state effect in Phase 0 sim) |
 
-Fire / rapid-depress / toxic-atmosphere aren't here — those fire from
-ORA threshold rules, not param injection.
+Defaults are **demo-paced** (~10–75× faster than realistic on-orbit
+dynamics) so threshold crossings land in under a minute on stage.
+Every anomaly accepts keyword overrides (`kpa_per_min`, `bleed_kg_s`,
+`rate_kg_s`, `extra_current_a`, `health`) for realistic-pace runs.
+
+Fire / rapid-depress / toxic-atmosphere aren't in the injector table
+— those either fire from ORA threshold rules on physical state
+(`threshold:rapid_depress` watches dP/dt) or are operator-fired as
+Class 1 scenario buttons from `/ops` (canned text + module,
+bypassing the gate for zero-latency hull-breach announcements).
 
 ### ORA loop — proactive speech (`server/observer.py`, `server/ora.py`)
 
