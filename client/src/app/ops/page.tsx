@@ -53,12 +53,11 @@ const QUICK_ALERTS = [
 // ISS threat label. Canned text follows the published emergency-response
 // procedure in server/corpus/emergencies-*.md so what HAL says on stage
 // matches what an actual ISS crew would hear.
-// Every Class-1 canned line ends with an offer to show the affected
-// module. Crew responds "yes" (voice); HAL has the alert in history
-// and naturally emits the navigate_to / highlight_part tool on the
-// next turn. The scene doesn't auto-focus anymore — see useHalAlerts.
-const SHOW_OFFER = " Would you like me to show you the affected module?";
-
+// Every Class-1 canned line ends with an offer that names the
+// specific tool target (exterior part or interior module), so when
+// the crew says "yes" HAL has the enum value in its conversation
+// history and can emit the matching highlight_part / navigate_to
+// tool call. Scene doesn't auto-focus anymore — see useHalAlerts.
 const CLASS_1_SCENARIOS = [
   {
     name: "rapid_depress",
@@ -68,7 +67,9 @@ const CLASS_1_SCENARIOS = [
     text: (
       "PRIORITY ALERT. Cabin pressure is dropping rapidly. " +
       "Commander, close all hatches immediately and don emergency " +
-      "oxygen. We may have a hull breach." + SHOW_OFFER
+      "oxygen. We may have a hull breach. " +
+      "Would you like me to highlight the main modules on the " +
+      "exterior view?"
     ),
   },
   {
@@ -79,7 +80,9 @@ const CLASS_1_SCENARIOS = [
     text: (
       "EMERGENCY. Cabin oxygen is critically low. Commander, don " +
       "oxygen masks now. I am compensating via ACS high-pressure " +
-      "tank makeup." + SHOW_OFFER
+      "tank makeup. " +
+      "Would you like me to highlight the main modules on the " +
+      "exterior view?"
     ),
   },
   {
@@ -90,7 +93,8 @@ const CLASS_1_SCENARIOS = [
     text: (
       "EMERGENCY. Smoke detector trip in Destiny. Commander, shut off " +
       "ventilation in the affected segment and prepare portable fire " +
-      "extinguishers. I am isolating the Destiny IMV." + SHOW_OFFER
+      "extinguishers. I am isolating the Destiny IMV. " +
+      "Would you like me to navigate to Destiny?"
     ),
   },
   {
@@ -101,7 +105,8 @@ const CLASS_1_SCENARIOS = [
     text: (
       "EMERGENCY. Ammonia detected in the cabin atmosphere. Commander, " +
       "don emergency breathing apparatus and proceed to the Russian " +
-      "segment safe haven. I am isolating the affected IFHX." + SHOW_OFFER
+      "segment safe haven. I am isolating the affected IFHX. " +
+      "Would you like me to navigate to Destiny?"
     ),
   },
 ] as const;
